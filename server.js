@@ -12,10 +12,21 @@ import { URL } from "url";
 import { generateReport } from "./report-generator.js";
 import { calculateScore, scoreToGrade } from "./report-generator.js";
 import { recordScan } from "./history-store.js";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
+
+// Limits each IP to 10 scans per 15 minutes. Protects the server from being
+// hammered and keeps it usable for everyone since this is a free public tool.
+const scanLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many scans from this IP. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ---------- Helper checks ----------
 
@@ -291,7 +302,7 @@ async function checkEmailSpoofingProtection(hostname) {
 
 // ---------- Main scan endpoint ----------
 
-app.post("/api/scan", async (req, res) => {
+app.post("/api/scan", scanLimiter, async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 
   if (!ownershipConfirmed) {
