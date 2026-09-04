@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SiteScanner — Free Security Health Check</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #131a22;
+    --accent: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 0.95rem; }
+  .card {
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 18px;
+    margin-top: 16px;
+    border: 1px solid #1f2937;
+  }
+  input[type=text] {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #0f151c;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  label.confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  button {
+    width: 100%;
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #05130a;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #1f2937;
+    font-size: 0.92rem;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .status { font-weight: 600; }
+  .ok { color: var(--accent); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  .loading { color: var(--muted); text-align: center; padding: 20px; }
+  .report { white-space: pre-wrap; line-height: 1.5; font-size: 0.95rem; }
+
+  /* Scan pulse animation */
+  .scan-pulse-wrap { display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
+  .scan-pulse { position: relative; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+  .pulse-ring {
+    position: absolute; width: 100%; height: 100%; border-radius: 50%;
+    border: 2px solid var(--accent); opacity: 0;
+    animation: pulse-expand 2s ease-out infinite;
+  }
+  .pulse-ring.delay1 { animation-delay: 0.6s; }
+  .pulse-ring.delay2 { animation-delay: 1.2s; }
+  .pulse-core { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  @keyframes pulse-expand {
+    0% { transform: scale(0.3); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+  .scan-pulse-label { margin-top: 16px; color: var(--muted); font-size: 0.9rem; }
+
+  /* Hero grade ring */
+  .hero-grade-wrap { display: flex; align-items: center; gap: 20px; padding: 24px; }
+  .grade-ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
+  .grade-ring svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+  .grade-ring-bg { fill: none; stroke: #1f2937; stroke-width: 8; }
+  .grade-ring-fg { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease; }
+  .grade-ring-letter {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; font-weight: 700;
+  }
+  .hero-grade-info { flex: 1; }
+  .hero-grade-score { font-size: 0.9rem; color: var(--muted); }
+  .hero-grade-delta { font-size: 0.85rem; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 SiteScanner</h1>
+  <p class="sub">Free passive security health check for your website. No exploits, no attacks — just checks.</p>
+
+  <div class="card">
+    <input type="text" id="urlInput" placeholder="yourdomain.com" />
+    <label class="confirm">
+      <input type="checkbox" id="confirmOwn" />
+      I own this domain or have explicit permission to scan it.
+    </label>
+    <button id="scanBtn">Scan Now</button>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+const btn = document.getElementById('scanBtn');
+const resultsEl = document.getElementById('results');
+
+btn.addEventListener('click', async () => {
+  const url = document.getElementById('urlInput').value.trim();
+  const confirmed = document.getElementById('confirmOwn').checked;
+
+  if (!url) return alert('Enter a domain first.');
+  if (!confirmed) return alert('Please confirm you have permission to scan this domain.');
+
+  btn.disabled = true;
+  resultsEl.innerHTML = `
+    <div class="card scan-pulse-wrap">
+      <div class="scan-pulse">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring delay1"></div>
+        <div class="pulse-ring delay2"></div>
+        <div class="pulse-core"></div>
+      </div>
+      <div class="scan-pulse-label">Scanning ${url}…</div>
+    </div>`;
+
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, ownershipConfirmed: confirmed }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      resultsEl.innerHTML = `<div class="card bad">${data.error}</div>`;
+      btn.disabled = false;
+      return;
+    }
+
+    renderResults(data);
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="card bad">Scan failed: ${err.message}</div>`;
+  }
+  btn.disabled = false;
+});
+
+function renderResults(data) {
+  const { raw, hostname, score, grade, previousScan } = data;
+  let html = `<div class="card"><strong>Results for ${hostname}</strong></div>`;
+
+  // Hero grade ring
+  const gradeHex = score >= 75 ? '#4ade80' : score >= 40 ? '#fbbf24' : '#f87171';
+  const circumference = 2 * Math.PI * 40;
+  const offset = circumference - (score / 100) * circumference;
+
+  html += `<div class="card hero-grade-wrap">
+    <div class="grade-ring">
+      <svg viewBox="0 0 96 96">
+        <circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle>
+        <circle class="grade-ring-fg" cx="48" cy="48" r="40"
+          stroke="${gradeHex}"
+          stroke-dasharray="${circumference}"
+          stroke-dashoffset="${offset}"></circle>
+      </svg>
+      <div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div>
+    </div>
+    <div class="hero-grade-info">
+      <div class="hero-grade-score">${score}/100</div>`;
+
+  if (previousScan) {
+    const delta = score - previousScan.score;
+    const deltaText = delta > 0 ? `+${delta}` : `${delta}`;
+    const deltaColor = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : 'var(--muted)';
+    html += `<div class="hero-grade-delta" style="color:${deltaColor};">${previousScan.grade} → ${grade} (${deltaText}) since last scan</div>`;
+  } else {
+    html += `<div class="hero-grade-delta" style="color:var(--muted);">First scan of this site</div>`;
+  }
+  html += `</div></div>`;
+
+  // TLS
+  html += `<div class="card"><strong>SSL/TLS Certificate</strong>`;
+  if (raw.tls.valid) {
+    const days = raw.tls.daysUntilExpiry;
+    const cls = days < 14 ? 'bad' : days < 30 ? 'warn' : 'ok';
+    html += `<div class="result-item"><span>Expires in</span><span class="status ${cls}">${days} days</span></div>`;
+    html += `<div class="result-item"><span>Issuer</span><span>${raw.tls.issuer}</span></div>`;
+  } else {
+    html += `<div class="result-item"><span>Certificate check failed</span><span class="status bad">${raw.tls.error || 'error'}</span></div>`;
+  }
+  html += `</div>`;
+
+  // Headers
+  html += `<div class="card"><strong>Security Headers</strong>`;
+  (raw.headers.missing || []).forEach(h => {
+    html += `<div class="result-item"><span>${h}</span><span class="status bad">Missing</span></div>`;
+  });
+  (raw.headers.present || []).forEach(h => {
+    html += `<div class="result-item"><span>${h}</span><span class="status ok">Present</span></div>`;
+  });
+  html += `</div>`;
+
+  // Exposed files
+  html += `<div class="card"><strong>Exposed Sensitive Files</strong>`;
+  if (raw.exposedFiles.length === 0) {
+    html += `<div class="result-item"><span>None found</span><span class="status ok">Good</span></div>`;
+  } else {
+    raw.exposedFiles.forEach(f => {
+      html += `<div class="result-item"><span>${f.path}</span><span class="status bad">Exposed</span></div>`;
+    });
+  }
+  html += `</div>`;
+
+  // Email spoofing
+  html += `<div class="card"><strong>Email Spoofing Protection</strong>`;
+  html += `<div class="result-item"><span>SPF record</span><span class="status ${raw.emailAuth.spf ? 'ok' : 'warn'}">${raw.emailAuth.spf ? 'Found' : 'Missing'}</span></div>`;
+  html += `<div class="result-item"><span>DMARC record</span><span class="status ${raw.emailAuth.dmarc ? 'ok' : 'warn'}">${raw.emailAuth.dmarc ? 'Found' : 'Missing'}</span></div>`;
+  html += `</div>`;
+
+  // Cookies
+  if (raw.cookies?.hasCookies) {
+    html += `<div class="card"><strong>Cookie Security</strong>`;
+    raw.cookies.cookies.forEach(c => {
+      const secure = c.secure && c.httpOnly;
+      html += `<div class="result-item"><span>${c.name}</span><span class="status ${secure ? 'ok' : 'warn'}">${secure ? 'Secured' : 'Missing flags'}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  // CORS
+  html += `<div class="card"><strong>CORS Policy</strong>`;
+  if (raw.cors?.dangerousCombo) {
+    html += `<div class="result-item"><span>Reflects origin + credentials</span><span class="status bad">Dangerous</span></div>`;
+  } else if (raw.cors?.wildcardOpen) {
+    html += `<div class="result-item"><span>Allows any origin</span><span class="status warn">Open</span></div>`;
+  } else {
+    html += `<div class="result-item"><span>Origin restrictions</span><span class="status ok">Good</span></div>`;
+  }
+  html += `</div>`;
+
+  // Mixed content
+  if (raw.mixedContent?.checked) {
+    html += `<div class="card"><strong>Mixed Content</strong>`;
+    if (raw.mixedContent.insecureResources.length === 0) {
+      html += `<div class="result-item"><span>HTTP resources on HTTPS page</span><span class="status ok">None found</span></div>`;
+    } else {
+      html += `<div class="result-item"><span>Insecure resources found</span><span class="status bad">${raw.mixedContent.insecureResources.length}</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Malware/blocklist
+  if (raw.malware?.checked) {
+    html += `<div class="card"><strong>Malware / Phishing Check</strong>`;
+    if (raw.malware.flagged) {
+      html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status bad">FLAGGED</span></div>`;
+    } else {
+      html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status ok">Clean</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `<button id="explainBtn">Get Plain-English Report</button>`;
+  resultsEl.innerHTML = html;
+
+  document.getElementById('explainBtn').addEventListener('click', async () => {
+    resultsEl.insertAdjacentHTML('beforeend', '<div class="card loading">Generating report…</div>');
+    const res = await fetch('/api/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw, hostname }),
+    });
+    const data = await res.json();
+    document.querySelector('.loading').outerHTML = `<div class="card report">${data.report || data.error}</div>`;
+  });
+}
+</script>
+</body>
+</html>
