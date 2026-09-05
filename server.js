@@ -302,6 +302,61 @@ async function checkEmailSpoofingProtection(hostname) {
 
 // ---------- Main scan endpoint ----------
 
+// ---------- Quick Check: simple Safe/Unsafe answer, no technical report ----------
+// Same pattern as Google's own Safe Browsing Site Status Tool: lead with one
+// clear answer, let people drill into the full technical scan separately.
+
+app.post("/api/quickcheck", scanLimiter, async (req, res) => {
+  const { url, ownershipConfirmed } = req.body;
+
+  if (!ownershipConfirmed) {
+    return res.status(400).json({ error: "You must confirm you own or have permission to check this domain." });
+  }
+  if (!url) {
+    return res.status(400).json({ error: "Missing url" });
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+  } catch {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
+
+  const hostname = parsed.hostname;
+
+  try {
+    const [malware, tlsInfo] = await Promise.allSettled([
+      checkMalwareBlocklist(parsed.toString()),
+      checkTLS(hostname),
+    ]);
+
+    const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false };
+    const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false };
+
+    const reasons = [];
+    let safe = true;
+
+    if (malwareResult.checked && malwareResult.flagged) {
+      safe = false;
+      reasons.push(`Flagged by Google Safe Browsing for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
+    }
+    if (!tlsResult.valid) {
+      safe = false;
+      reasons.push("No valid SSL certificate — connection is not secure");
+    }
+
+    res.json({
+      hostname,
+      safe,
+      reasons,
+      malwareChecked: malwareResult.checked,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/scan", scanLimiter, async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 

@@ -115,7 +115,20 @@
   <h1>🔍 SiteScanner</h1>
   <p class="sub">Free passive security health check for your website. No exploits, no attacks — just checks.</p>
 
+  <!-- Quick Check: one field, one clear answer, no technical detail -->
   <div class="card">
+    <strong style="display:block; margin-bottom:10px;">Quick Check — is this site safe?</strong>
+    <input type="text" id="quickInput" placeholder="yourdomain.com" />
+    <label class="confirm">
+      <input type="checkbox" id="quickConfirm" />
+      I own this domain or have explicit permission to check it.
+    </label>
+    <button id="quickBtn">Check Now</button>
+    <div id="quickResult"></div>
+  </div>
+
+  <div class="card">
+    <strong style="display:block; margin-bottom:10px;">Full Technical Scan</strong>
     <input type="text" id="urlInput" placeholder="yourdomain.com" />
     <label class="confirm">
       <input type="checkbox" id="confirmOwn" />
@@ -128,6 +141,59 @@
 </div>
 
 <script>
+// Quick Check logic — simple safe/unsafe answer, no technical detail
+const quickBtn = document.getElementById('quickBtn');
+const quickResultEl = document.getElementById('quickResult');
+
+quickBtn.addEventListener('click', async () => {
+  const url = document.getElementById('quickInput').value.trim();
+  const confirmed = document.getElementById('quickConfirm').checked;
+
+  if (!url) return alert('Enter a domain first.');
+  if (!confirmed) return alert('Please confirm you have permission to check this domain.');
+
+  quickBtn.disabled = true;
+  quickResultEl.innerHTML = '<div class="loading">Checking…</div>';
+
+  try {
+    const res = await fetch('/api/quickcheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, ownershipConfirmed: confirmed }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      quickResultEl.innerHTML = `<div style="color:var(--bad); margin-top:12px;">${data.error}</div>`;
+      quickBtn.disabled = false;
+      return;
+    }
+
+    const color = data.safe ? 'var(--accent)' : 'var(--bad)';
+    const label = data.safe ? '✅ Safe' : '⚠️ Unsafe';
+    let html = `<div style="margin-top:16px; padding:16px; border-radius:10px; background:${data.safe ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)'}; border:1px solid ${color};">`;
+    html += `<div style="font-size:1.4rem; font-weight:700; color:${color};">${label}</div>`;
+    if (!data.safe && data.reasons.length > 0) {
+      html += `<ul style="margin:8px 0 0 18px; color:var(--muted); font-size:0.9rem;">`;
+      data.reasons.forEach(r => html += `<li>${r}</li>`);
+      html += `</ul>`;
+    }
+    html += `<a href="#" id="wantFullReport" style="display:inline-block; margin-top:12px; color:var(--accent); font-size:0.9rem;">Want the full technical report? →</a>`;
+    html += `</div>`;
+    quickResultEl.innerHTML = html;
+
+    document.getElementById('wantFullReport').addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('urlInput').value = url;
+      document.getElementById('confirmOwn').checked = true;
+      document.getElementById('urlInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  } catch (err) {
+    quickResultEl.innerHTML = `<div style="color:var(--bad); margin-top:12px;">Check failed: ${err.message}</div>`;
+  }
+  quickBtn.disabled = false;
+});
+
 const btn = document.getElementById('scanBtn');
 const resultsEl = document.getElementById('results');
 
