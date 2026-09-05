@@ -373,6 +373,14 @@ function generateReport(raw, hostname) {
       lines.push("");
       num++;
     }
+
+    // Trackers — informational only, not a security deduction
+    if (raw.trackers?.checked && raw.trackers.trackers.length > 0) {
+      lines.push(`### Trackers Detected (informational, not a security issue)`);
+      lines.push(`**Found:** ${raw.trackers.trackers.join(", ")}`);
+      lines.push(`**Why this is here:** These are third-party scripts that can track visitor behavior. Not a security flaw — just worth knowing what's running on your site and disclosing it in your privacy policy if you haven't already.`);
+      lines.push("");
+    }
   }
 
   // What's working

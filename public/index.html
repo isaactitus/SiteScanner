@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Free website security scanner. Check SSL, security headers, malware, cookies, CORS, and more — instantly, with a plain-English report and copy-paste fixes." />
+<meta property="og:title" content="SiteScanner — Free Website Security Check" />
+<meta property="og:description" content="Scan any website for SSL, header, malware, and privacy issues. Free, instant, no signup." />
+<meta property="og:type" content="website" />
 <title>SiteScanner — Free Security Health Check</title>
 <style>
   :root {
@@ -348,6 +352,19 @@ function renderResults(data) {
       html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status bad">FLAGGED</span></div>`;
     } else {
       html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status ok">Clean</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Trackers
+  if (raw.trackers?.checked) {
+    html += `<div class="card"><strong>Tracking Scripts</strong>`;
+    if (raw.trackers.trackers.length === 0) {
+      html += `<div class="result-item"><span>Known trackers</span><span class="status ok">None detected</span></div>`;
+    } else {
+      raw.trackers.trackers.forEach(t => {
+        html += `<div class="result-item"><span>${t}</span><span class="status warn">Detected</span></div>`;
+      });
     }
     html += `</div>`;
   }

@@ -127,6 +127,31 @@ async function checkCORS(targetUrl) {
   return { allowOrigin: allowOrigin || null, wildcardOpen, reflectsAnyOrigin, dangerousCombo };
 }
 
+const TRACKER_SIGNATURES = [
+  { name: "Google Analytics", pattern: /google-analytics\.com|googletagmanager\.com\/gtag/i },
+  { name: "Google Tag Manager", pattern: /googletagmanager\.com\/gtm/i },
+  { name: "Facebook Pixel", pattern: /connect\.facebook\.net.*fbevents/i },
+  { name: "Hotjar (session recording)", pattern: /static\.hotjar\.com/i },
+  { name: "Microsoft Clarity (session recording)", pattern: /clarity\.ms/i },
+  { name: "FullStory (session recording)", pattern: /fullstory\.com/i },
+  { name: "Mixpanel", pattern: /cdn\.mxpnl\.com/i },
+  { name: "Segment", pattern: /cdn\.segment\.com/i },
+  { name: "DoubleClick / Google Ads", pattern: /doubleclick\.net/i },
+  { name: "Amplitude", pattern: /cdn\.amplitude\.com/i },
+];
+
+async function checkTrackers(targetUrl) {
+  try {
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+    const html = await res.text();
+
+    const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
+    return { checked: true, trackers: found };
+  } catch {
+    return { checked: false, trackers: [] };
+  }
+}
+
 async function checkMixedContent(targetUrl) {
   try {
     const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
@@ -377,7 +402,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
   const hostname = parsed.hostname;
 
   try {
-    const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware] = await Promise.allSettled([
+    const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
       checkSecurityHeaders(parsed.toString()),
       checkTLS(hostname),
       checkExposedFiles(parsed.toString()),
@@ -386,6 +411,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
       checkCORS(parsed.toString()),
       checkMixedContent(parsed.toString()),
       checkMalwareBlocklist(parsed.toString()),
+      checkTrackers(parsed.toString()),
     ]);
 
     const raw = {
@@ -397,6 +423,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
       cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
       mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
       malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
+      trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
     };
 
     // Calculate score now (not just when the plain-English report is
