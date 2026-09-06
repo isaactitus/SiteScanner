@@ -51,6 +51,10 @@ function updateNavAuthUI() {
     document.getElementById("logoutBtn").onclick = async () => {
       await fetch("/api/auth/logout", { method: "POST" });
       currentUser = null;
+      // Clear lingering unlock cache from local browser
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("unlocked_"))
+        .forEach((k) => localStorage.removeItem(k));
       location.reload();
     };
   } else {
@@ -118,10 +122,11 @@ async function handleGoogleResponse(response) {
 }
 
 function isDomainUnlocked(hostname) {
-  if (!hostname) return false;
-  if (currentUser?.is_pro) return true;
-  if (currentUser?.unlockedDomains?.includes(hostname.toLowerCase())) return true;
-  return localStorage.getItem(`unlocked_${hostname}`) === "true";
+  // If not logged in, domain is strictly locked
+  if (!hostname || !currentUser) return false;
+  if (currentUser.is_pro) return true;
+  if (currentUser.unlockedDomains?.includes(hostname.toLowerCase())) return true;
+  return false;
 }
 
 function launchRazorpayCheckout(hostname, featureName, onSuccess) {
@@ -383,7 +388,7 @@ function renderResults(data, targetId = "results") {
       .replace(/## (.*)/g, '<h3 style="margin-top:20px; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; color:#fff;">$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>')
       .replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.3); color:#38bdf8; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:0.85em;">$1</code>')
-      .replace(/```([\s\S]*?)```/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
+      .replace(/```([\s\S]*?)পদে/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
       .replace(/\n/g, "<br/>");
   }
 

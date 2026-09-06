@@ -844,6 +844,17 @@ app.post("/api/explain", aiLimiter, async (req, res) => {
     return res.status(400).json({ error: "Missing scan data." });
   }
 
+  // Strict paywall gate: Require sign-in
+  if (!req.user) {
+    return res.status(401).json({ error: "Authentication required. Please sign in to access AI blueprints." });
+  }
+
+  // Strict paywall gate: Require domain entitlement or global pro
+  const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
+  if (!hasEntitlement) {
+    return res.status(403).json({ error: "Pro entitlement required. Please unlock this domain." });
+  }
+
   try {
     const ruleBasedReport = generateReport(raw, hostname);
     let aiReport = null;
