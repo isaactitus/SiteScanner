@@ -9,16 +9,36 @@ import { URL } from "url";
 import path from "path";
 import { fileURLToPath } from "url";
 import ipaddr from "ipaddr.js";
+import rateLimit from "express-rate-limit";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
 import { recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.static("public"));
 
-// ---------- Helpers & SSRF Guard ----------
+// ---------- Rate Limiting ----------
+
+const scanLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Scan limit reached. You can perform up to 10 scans per 10 minutes." },
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "AI remediation quota reached (5 requests per 10 mins). Try again shortly." },
+});
+
+// ---------- Input Normalization & SSRF Guard ----------
 
 function sanitizeTargetDomain(input) {
   if (!input || typeof input !== "string") {
@@ -63,7 +83,7 @@ async function validatePublicHostname(hostname) {
       const range = addr.range();
 
       if (blockedRanges.includes(range)) {
-        throw new Error(`Domain resolves to a restricted or private IP address (${range}).`);
+        throw new Error(`Domain resolves to a restricted IP address (${range}).`);
       }
     } catch (err) {
       if (err.message.includes("restricted")) throw err;
@@ -74,7 +94,7 @@ async function validatePublicHostname(hostname) {
   return true;
 }
 
-// ---------- Check Functions ----------
+// ---------- Scan Checkers ----------
 
 async function checkHttpsEnforcement(hostname) {
   try {
@@ -115,6 +135,7 @@ async function checkMalwareBlocklist(targetUrl) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        timeout: 5000,
       }
     );
     const data = await res.json();
@@ -133,7 +154,7 @@ async function checkMalwareBlocklist(targetUrl) {
 
 async function checkCookieSecurity(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
     let rawCookies = [];
     if (typeof res.headers.raw === "function") {
       rawCookies = res.headers.raw()["set-cookie"] || [];
@@ -174,7 +195,7 @@ async function checkCORS(targetUrl) {
     const res = await fetch(targetUrl, {
       method: "GET",
       headers: { Origin: "https://sitescanner-cors-test.example.com" },
-      timeout: 7000,
+      timeout: 6000,
     });
 
     const allowOrigin = res.headers.get("access-control-allow-origin");
@@ -205,7 +226,7 @@ const TRACKER_SIGNATURES = [
 
 async function checkTrackers(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
     const html = await res.text();
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
     return { checked: true, trackers: found };
@@ -216,7 +237,7 @@ async function checkTrackers(targetUrl) {
 
 async function checkMixedContent(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
     const html = await res.text();
     const isHttps = targetUrl.startsWith("https://");
     if (!isHttps) return { checked: false, insecureResources: [] };
@@ -242,7 +263,7 @@ async function checkSecurityHeaders(targetUrl) {
   let currentUrl = targetUrl;
   let res;
   for (let i = 0; i < 5; i++) {
-    res = await fetch(currentUrl, { method: "GET", redirect: "manual", timeout: 7000 });
+    res = await fetch(currentUrl, { method: "GET", redirect: "manual", timeout: 6000 });
     if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
       currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
       continue;
@@ -268,7 +289,7 @@ async function checkSecurityHeaders(targetUrl) {
 async function checkTLS(hostname) {
   return new Promise((resolve) => {
     const socket = tls.connect(
-      { host: hostname, port: 443, servername: hostname, timeout: 5000 },
+      { host: hostname, port: 443, servername: hostname, timeout: 8000 },
       () => {
         const cert = socket.getPeerCertificate();
         const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
@@ -309,7 +330,7 @@ async function checkExposedFiles(baseUrl) {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
-        timeout: 4000,
+        timeout: 3500,
         headers: { "User-Agent": "SiteScanner/1.0" },
       });
 
@@ -360,7 +381,7 @@ async function checkEmailSpoofingProtection(hostname) {
   return result;
 }
 
-// ---------- Quick Check ----------
+// ---------- Quick Check Endpoint ----------
 
 app.post("/api/quickcheck", async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
@@ -459,9 +480,9 @@ app.get("/api/recent", async (req, res) => {
   res.json(feed);
 });
 
-// ---------- Deep Scan (SSE Stream) ----------
+// ---------- Deep Scan (SSE Stream with Rate Limiter) ----------
 
-app.get("/api/scan-stream", async (req, res) => {
+app.get("/api/scan-stream", scanLimiter, async (req, res) => {
   const { url, confirmed, listPublicly } = req.query;
 
   if (confirmed !== "true") {
@@ -564,7 +585,7 @@ app.get("/api/scan-stream", async (req, res) => {
 
 // ---------- Standard Scan ----------
 
-app.post("/api/scan", async (req, res) => {
+app.post("/api/scan", scanLimiter, async (req, res) => {
   const { url, ownershipConfirmed, listPublicly } = req.body;
 
   if (!ownershipConfirmed) {
@@ -632,9 +653,9 @@ app.post("/api/scan", async (req, res) => {
   }
 });
 
-// ---------- Plain-English & Gemini Remediation ----------
+// ---------- High-Speed Plain-English & Gemini Remediation ----------
 
-app.post("/api/explain", async (req, res) => {
+app.post("/api/explain", aiLimiter, async (req, res) => {
   const { raw, hostname } = req.body;
 
   if (!raw || !hostname) {
@@ -649,17 +670,21 @@ app.post("/api/explain", async (req, res) => {
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {
-      aiError = "No GEMINI_API_KEY found in .env file.";
-      console.warn("API Explain: GEMINI_API_KEY is not defined in environment.");
+      aiError = "No GEMINI_API_KEY found in environment.";
     } else {
       try {
-        const prompt = `You are a senior web application security engineer. Analyze the following passive security scan for "${hostname}".
-Write a concise, actionable remediation guide for a developer. 
-Do not waste time explaining basic concepts (like what XSS is). Instead, focus entirely on HOW to fix the missing headers or vulnerabilities. Provide exact configuration snippets matching the detected hosting platform.
-Use clean markdown with headers and code blocks.
+        const prompt = `Senior AppSec Engineer mode. Analyze this scan for "${hostname}".
+Produce an ultra-concise, copy-pasteable remediation guide for ONLY the detected issues.
+Do not define concepts (no "What is XSS"). Give a 1-2 line diagnosis and the direct config block for the detected server/proxy (e.g. Nginx, Cloudflare, Next.js, or DNS).
+Limit response to under 300 words.
 
-Raw Scan Data:
-${JSON.stringify(raw, null, 2)}`;
+Scan findings:
+${JSON.stringify({
+  missingHeaders: raw.headers?.missing || [],
+  exposedFiles: raw.exposedFiles || [],
+  emailAuth: raw.emailAuth || {},
+  serverDetected: raw.headers?.server || raw.headers?.xPoweredBy || 'unknown'
+})}`;
 
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
@@ -668,7 +693,10 @@ ${JSON.stringify(raw, null, 2)}`;
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.2 },
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 800,
+              },
             }),
           }
         );
@@ -676,17 +704,13 @@ ${JSON.stringify(raw, null, 2)}`;
         if (!response.ok) {
           const errBody = await response.text();
           console.error(`Gemini API Error HTTP ${response.status}:`, errBody);
-          aiError = `Gemini API returned status ${response.status}. Check server logs.`;
+          aiError = `Gemini API returned status ${response.status}.`;
         } else {
           const data = await response.json();
           aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-          if (!aiReport) {
-            console.warn("Gemini response missing candidate content:", JSON.stringify(data));
-            aiError = "Gemini returned an empty candidate response.";
-          }
         }
       } catch (err) {
-        console.error("Gemini API call threw an exception:", err.message);
+        console.error("Gemini API call exception:", err.message);
         aiError = `Request failed: ${err.message}`;
       }
     }
