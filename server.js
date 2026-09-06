@@ -7,9 +7,11 @@ import { Resolver } from "dns/promises";
 import tls from "tls";
 import { URL } from "url";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import ipaddr from "ipaddr.js";
 import rateLimit from "express-rate-limit";
+import Razorpay from "razorpay";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
@@ -19,6 +21,13 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.static("public"));
+
+const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+  ? new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    })
+  : null;
 
 // ---------- Rate Limiting ----------
 
@@ -381,6 +390,53 @@ async function checkEmailSpoofingProtection(hostname) {
   return result;
 }
 
+// ---------- Razorpay Monetization Endpoints ----------
+
+// 1. Create a Razorpay Order
+app.post("/api/create-order", async (req, res) => {
+  const { hostname } = req.body;
+  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
+  if (!razorpay) return res.status(500).json({ error: "Razorpay credentials not configured." });
+
+  try {
+    const options = {
+      amount: 49900, // ₹499.00 in paise
+      currency: "INR",
+      receipt: `rcpt_${Date.now().toString().slice(-8)}`,
+      notes: { hostname },
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: process.env.RAZORPAY_KEY_ID,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Cryptographically Verify Razorpay Payment Signature
+app.post("/api/verify-payment", (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, hostname } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return res.status(400).json({ success: false, error: "Missing signature attributes." });
+  }
+
+  const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET);
+  hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`);
+  const generatedSignature = hmac.digest("hex");
+
+  if (generatedSignature === razorpay_signature) {
+    res.json({ success: true, hostname });
+  } else {
+    res.status(400).json({ success: false, error: "Invalid payment signature." });
+  }
+});
+
 // ---------- Quick Check Endpoint ----------
 
 app.post("/api/quickcheck", async (req, res) => {
@@ -480,7 +536,7 @@ app.get("/api/recent", async (req, res) => {
   res.json(feed);
 });
 
-// ---------- Deep Scan (SSE Stream with Rate Limiter) ----------
+// ---------- Deep Scan (SSE Stream) ----------
 
 app.get("/api/scan-stream", scanLimiter, async (req, res) => {
   const { url, confirmed, listPublicly } = req.query;
@@ -653,7 +709,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
   }
 });
 
-// ---------- High-Speed Plain-English & Gemini Remediation ----------
+// ---------- Plain-English & Gemini Remediation ----------
 
 app.post("/api/explain", aiLimiter, async (req, res) => {
   const { raw, hostname } = req.body;
@@ -683,7 +739,7 @@ ${JSON.stringify({
   missingHeaders: raw.headers?.missing || [],
   exposedFiles: raw.exposedFiles || [],
   emailAuth: raw.emailAuth || {},
-  serverDetected: raw.headers?.server || raw.headers?.xPoweredBy || 'unknown'
+  serverDetected: raw.headers?.server || raw.headers?.xPoweredBy || "unknown",
 })}`;
 
         const response = await fetch(
