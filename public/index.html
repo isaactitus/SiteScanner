@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Passive Security Architecture Audit</title>
   <link rel="stylesheet" href="/style.css" />
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <div class="app-container">
@@ -13,8 +15,13 @@
         <span class="nav-brand-badge"></span>
         SiteScanner
       </a>
-      <div class="nav-status">
-        <span class="nav-status-dot"></span> Engine Online (Gemini 3.6 & Turso)
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <div class="nav-status">
+          <span class="nav-status-dot"></span> Engine Online
+        </div>
+        <div id="authNavContainer" style="position: relative;">
+          <button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>
+        </div>
       </div>
     </nav>
 
@@ -24,6 +31,7 @@
     </header>
 
     <main>
+      <!-- Unified Scanning Dock -->
       <section class="scan-card">
         <div class="tab-group">
           <button id="tabQuick" class="tab-btn active" type="button">Quick Check</button>
@@ -57,6 +65,7 @@
         </form>
       </section>
 
+      <!-- Recent Scans Live Ticker -->
       <div class="feed-card" id="feedCard">
         <span class="feed-title">Recent Audits:</span>
         <div class="feed-items" id="recentList">
@@ -64,12 +73,15 @@
         </div>
       </div>
 
+      <!-- Quick Check Result Dropdown -->
       <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
 
+      <!-- Progressive / Standard Output Section -->
       <section id="results" class="results-area"></section>
     </main>
   </div>
 
+  <!-- Razorpay Checkout Script -->
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script src="/app.js"></script>

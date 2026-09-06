@@ -12,15 +12,35 @@ import { fileURLToPath } from "url";
 import ipaddr from "ipaddr.js";
 import rateLimit from "express-rate-limit";
 import Razorpay from "razorpay";
+import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
+import {
+  recordScan,
+  saveLatestScan,
+  getLatestScan,
+  addToPublicFeed,
+  getPublicFeed,
+  upsertUser,
+  getUserProfile,
+  grantDomainEntitlement,
+  checkDomainEntitlement,
+} from "./history-store.js";
 
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static("public"));
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const JWT_SECRET = process.env.JWT_SECRET || "sitescanner_dev_secret_key_12345";
+
+// Global Standard Browser User-Agent to bypass Bot-Protection
+const BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
 
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
   ? new Razorpay({
@@ -28,6 +48,73 @@ const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     })
   : null;
+
+// Auth Verification Middleware
+app.use(async (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+  } catch {
+    req.user = null;
+  }
+  next();
+});
+
+// ---------- Authentication Endpoints ----------
+
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) return res.status(400).json({ error: "Missing Google credential." });
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+
+    const user = await upsertUser({
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      avatarUrl: payload.picture,
+    });
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, name: user.name },
+      JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    const profile = await getUserProfile(user.id);
+    res.json({ success: true, user: profile });
+  } catch (err) {
+    res.status(401).json({ error: "Authentication failed: " + err.message });
+  }
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  if (!req.user) return res.json({ user: null });
+  const profile = await getUserProfile(req.user.id);
+  res.json({ user: profile });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.clearCookie("token");
+  res.json({ success: true });
+});
 
 // ---------- Rate Limiting ----------
 
@@ -106,19 +193,34 @@ async function validatePublicHostname(hostname) {
 // ---------- Scan Checkers ----------
 
 async function checkHttpsEnforcement(hostname) {
+  let currentUrl = `http://${hostname}`;
+  const maxHops = 3;
+
   try {
-    const res = await fetch(`http://${hostname}`, {
-      method: "GET",
-      redirect: "manual",
-      timeout: 5000,
-    });
+    for (let i = 0; i < maxHops; i++) {
+      const res = await fetch(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        headers: { "User-Agent": BROWSER_USER_AGENT },
+        timeout: 5000,
+      });
 
-    const isRedirect = [301, 302, 307, 308].includes(res.status);
-    const location = res.headers.get("location") || "";
-    const redirectsToHttps = isRedirect && location.startsWith("https://");
+      const isRedirect = [301, 302, 303, 307, 308].includes(res.status);
+      const location = res.headers.get("location");
 
-    return { redirectsToHttps, plainTextAllowed: !redirectsToHttps };
-  } catch (err) {
+      if (isRedirect && location) {
+        const nextUrl = new URL(location, currentUrl).toString();
+        if (nextUrl.toLowerCase().startsWith("https://")) {
+          return { redirectsToHttps: true, plainTextAllowed: false };
+        }
+        currentUrl = nextUrl;
+        continue;
+      }
+
+      return { redirectsToHttps: false, plainTextAllowed: true };
+    }
+    return { redirectsToHttps: false, plainTextAllowed: true };
+  } catch {
     return { redirectsToHttps: false, plainTextAllowed: false };
   }
 }
@@ -156,14 +258,19 @@ async function checkMalwareBlocklist(targetUrl) {
       flagged: matches.length > 0,
       threatTypes: matches.map((m) => m.threatType),
     };
-  } catch (err) {
+  } catch {
     return { checked: false, reason: "network_error" };
   }
 }
 
 async function checkCookieSecurity(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": BROWSER_USER_AGENT },
+      timeout: 6000,
+    });
     let rawCookies = [];
     if (typeof res.headers.raw === "function") {
       rawCookies = res.headers.raw()["set-cookie"] || [];
@@ -203,7 +310,10 @@ async function checkCORS(targetUrl) {
   try {
     const res = await fetch(targetUrl, {
       method: "GET",
-      headers: { Origin: "https://sitescanner-cors-test.example.com" },
+      headers: {
+        Origin: "https://sitescanner-cors-test.example.com",
+        "User-Agent": BROWSER_USER_AGENT,
+      },
       timeout: 6000,
     });
 
@@ -235,7 +345,12 @@ const TRACKER_SIGNATURES = [
 
 async function checkTrackers(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": BROWSER_USER_AGENT },
+      timeout: 6000,
+    });
     const html = await res.text();
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
     return { checked: true, trackers: found };
@@ -246,7 +361,12 @@ async function checkTrackers(targetUrl) {
 
 async function checkMixedContent(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 6000 });
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": BROWSER_USER_AGENT },
+      timeout: 6000,
+    });
     const html = await res.text();
     const isHttps = targetUrl.startsWith("https://");
     if (!isHttps) return { checked: false, insecureResources: [] };
@@ -272,7 +392,12 @@ async function checkSecurityHeaders(targetUrl) {
   let currentUrl = targetUrl;
   let res;
   for (let i = 0; i < 5; i++) {
-    res = await fetch(currentUrl, { method: "GET", redirect: "manual", timeout: 6000 });
+    res = await fetch(currentUrl, {
+      method: "GET",
+      redirect: "manual",
+      headers: { "User-Agent": BROWSER_USER_AGENT },
+      timeout: 6000,
+    });
     if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
       currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
       continue;
@@ -340,7 +465,7 @@ async function checkExposedFiles(baseUrl) {
         method: "GET",
         redirect: "manual",
         timeout: 3500,
-        headers: { "User-Agent": "SiteScanner/1.0" },
+        headers: { "User-Agent": BROWSER_USER_AGENT },
       });
 
       if (res.status !== 200) {
@@ -379,20 +504,19 @@ async function checkEmailSpoofingProtection(hostname) {
     const txt = await resolver.resolveTxt(hostname);
     const flat = txt.map((r) => r.join(""));
     result.spf = flat.some((r) => r.startsWith("v=spf1"));
-  } catch (err) {}
+  } catch {}
 
   try {
     const dmarcTxt = await resolver.resolveTxt(`_dmarc.${hostname}`);
     const flat = dmarcTxt.map((r) => r.join(""));
     result.dmarc = flat.some((r) => r.startsWith("v=DMARC1"));
-  } catch (err) {}
+  } catch {}
 
   return result;
 }
 
 // ---------- Razorpay Monetization Endpoints ----------
 
-// 1. Create a Razorpay Order
 app.post("/api/create-order", async (req, res) => {
   const { hostname } = req.body;
   if (!hostname) return res.status(400).json({ error: "Hostname is required." });
@@ -400,10 +524,10 @@ app.post("/api/create-order", async (req, res) => {
 
   try {
     const options = {
-      amount: 49900, // ₹499.00 in paise
+      amount: 49900,
       currency: "INR",
       receipt: `rcpt_${Date.now().toString().slice(-8)}`,
-      notes: { hostname },
+      notes: { hostname, userId: req.user?.id || "guest" },
     };
 
     const order = await razorpay.orders.create(options);
@@ -418,8 +542,7 @@ app.post("/api/create-order", async (req, res) => {
   }
 });
 
-// 2. Cryptographically Verify Razorpay Payment Signature
-app.post("/api/verify-payment", (req, res) => {
+app.post("/api/verify-payment", async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, hostname } = req.body;
 
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
@@ -431,6 +554,9 @@ app.post("/api/verify-payment", (req, res) => {
   const generatedSignature = hmac.digest("hex");
 
   if (generatedSignature === razorpay_signature) {
+    if (req.user?.id && hostname) {
+      await grantDomainEntitlement(req.user.id, hostname, razorpay_order_id);
+    }
     res.json({ success: true, hostname });
   } else {
     res.status(400).json({ success: false, error: "Invalid payment signature." });
@@ -726,10 +852,9 @@ app.post("/api/explain", aiLimiter, async (req, res) => {
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {
-      aiError = "No GEMINI_API_KEY found in environment.";
+      aiError = "GEMINI_API_KEY is not configured in .env";
     } else {
-      try {
-        const prompt = `Senior AppSec Engineer mode. Analyze this scan for "${hostname}".
+      const prompt = `Senior AppSec Engineer mode. Analyze this scan for "${hostname}".
 Produce an ultra-concise, copy-pasteable remediation guide for ONLY the detected issues.
 Do not define concepts (no "What is XSS"). Give a 1-2 line diagnosis and the direct config block for the detected server/proxy (e.g. Nginx, Cloudflare, Next.js, or DNS).
 Limit response to under 300 words.
@@ -742,32 +867,45 @@ ${JSON.stringify({
   serverDetected: raw.headers?.server || raw.headers?.xPoweredBy || "unknown",
 })}`;
 
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 800,
-              },
-            }),
-          }
-        );
+      const candidateModels = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-pro"];
+      let succeeded = false;
 
-        if (!response.ok) {
-          const errBody = await response.text();
-          console.error(`Gemini API Error HTTP ${response.status}:`, errBody);
-          aiError = `Gemini API returned status ${response.status}.`;
-        } else {
-          const data = await response.json();
-          aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+      for (const model of candidateModels) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  temperature: 0.1,
+                  maxOutputTokens: 800,
+                },
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+            if (aiReport) {
+              succeeded = true;
+              aiError = null;
+              break;
+            }
+          } else {
+            const errText = await response.text();
+            aiError = `Model ${model} returned ${response.status}: ${errText}`;
+          }
+        } catch (err) {
+          aiError = `Model ${model} request failed: ${err.message}`;
         }
-      } catch (err) {
-        console.error("Gemini API call exception:", err.message);
-        aiError = `Request failed: ${err.message}`;
+      }
+
+      if (!succeeded && !aiReport) {
+        console.error("All Gemini candidate models failed. Last error:", aiError);
       }
     }
 

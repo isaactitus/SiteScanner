@@ -1,21 +1,140 @@
-let proUnlockedDomains = new Set();
+let currentUser = null;
+const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.googleusercontent.com";
+
+// Check session on load
+async function checkAuthSession() {
+  try {
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+    currentUser = data.user;
+    updateNavAuthUI();
+  } catch {
+    currentUser = null;
+    updateNavAuthUI();
+  }
+}
+
+function updateNavAuthUI() {
+  const container = document.getElementById("authNavContainer");
+  if (!container) return;
+
+  if (currentUser) {
+    const isPro = currentUser.is_pro || (currentUser.unlockedDomains && currentUser.unlockedDomains.length > 0);
+    const badge = isPro ? "PRO" : "FREE";
+    const badgeColor = isPro ? "var(--brand-emerald)" : "var(--brand-purple)";
+
+    container.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px; cursor: pointer;" id="userProfileBtn">
+        <img src="${currentUser.avatar_url || 'https://via.placeholder.com/32'}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);" />
+        <span style="font-size: 0.85rem; color: #fff; font-weight: 600;">${currentUser.name ? currentUser.name.split(' ')[0] : 'User'}</span>
+        <span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 9999px; background: rgba(139,92,246,0.2); color: ${badgeColor}; border: 1px solid ${badgeColor}; font-weight: 700;">${badge}</span>
+      </div>
+      <div id="userDropdown" style="display: none; position: absolute; right: 0; top: 44px; background: #0b0f19; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; z-index: 10000; box-shadow: 0 10px 25px rgba(0,0,0,0.5); min-width: 200px;">
+        <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 6px; word-break: break-all;">${currentUser.email}</div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">Unlocked Targets: <strong>${currentUser.unlockedDomains?.length || 0}</strong></div>
+        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px;" />
+        <button id="logoutBtn" style="background: transparent; border: none; color: var(--brand-rose); font-size: 0.85rem; cursor: pointer; padding: 4px 0; width: 100%; text-align: left;">Sign Out</button>
+      </div>
+    `;
+
+    document.getElementById("userProfileBtn").onclick = (e) => {
+      e.stopPropagation();
+      const dd = document.getElementById("userDropdown");
+      dd.style.display = dd.style.display === "none" ? "block" : "none";
+    };
+
+    document.addEventListener("click", () => {
+      const dd = document.getElementById("userDropdown");
+      if (dd) dd.style.display = "none";
+    });
+
+    document.getElementById("logoutBtn").onclick = async () => {
+      await fetch("/api/auth/logout", { method: "POST" });
+      currentUser = null;
+      location.reload();
+    };
+  } else {
+    container.innerHTML = `<button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>`;
+    document.getElementById("navSignInBtn").onclick = showSignInModal;
+  }
+}
+
+function showSignInModal() {
+  const existing = document.getElementById("authModal");
+  if (existing) existing.remove();
+
+  const modalHtml = `
+    <div id="authModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+      <div class="card" style="max-width:380px; width:100%; text-align:center; padding:32px; border:1px solid rgba(255,255,255,0.15);">
+        <div style="width:44px; height:44px; border-radius:50%; background:rgba(56,189,248,0.15); color:var(--brand-cyan); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:1.3rem;">
+          👤
+        </div>
+        <h3 style="color:#fff; font-size:1.25rem; font-weight:700; margin-bottom:8px;">Sign in to SiteScanner</h3>
+        <p style="color:var(--text-secondary); font-size:0.88rem; line-height:1.5; margin-bottom:24px;">
+          Log in with Google to sync your Pro audits, remediation blueprints, and target domains across devices.
+        </p>
+        <div id="googleBtnContainer" style="display:flex; justify-content:center; margin-bottom:16px;"></div>
+        <button id="closeAuthModal" type="button" style="background:transparent; border:none; color:var(--text-tertiary); cursor:pointer; font-size:0.85rem;">Dismiss</button>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+  document.getElementById("closeAuthModal").onclick = () => {
+    document.getElementById("authModal").remove();
+  };
+
+  if (window.google) {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleResponse,
+    });
+    window.google.accounts.id.renderButton(
+      document.getElementById("googleBtnContainer"),
+      { theme: "filled_blue", size: "large", width: 260 }
+    );
+  }
+}
+
+async function handleGoogleResponse(response) {
+  try {
+    const res = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      currentUser = data.user;
+      document.getElementById("authModal")?.remove();
+      updateNavAuthUI();
+      location.reload();
+    } else {
+      alert("Sign in failed: " + data.error);
+    }
+  } catch (err) {
+    alert("Sign in network error: " + err.message);
+  }
+}
 
 function isDomainUnlocked(hostname) {
   if (!hostname) return false;
-  if (proUnlockedDomains.has(hostname)) return true;
-  if (localStorage.getItem(`unlocked_${hostname}`) === "true") {
-    proUnlockedDomains.add(hostname);
-    return true;
-  }
-  return false;
+  if (currentUser?.is_pro) return true;
+  if (currentUser?.unlockedDomains?.includes(hostname.toLowerCase())) return true;
+  return localStorage.getItem(`unlocked_${hostname}`) === "true";
 }
 
 function launchRazorpayCheckout(hostname, featureName, onSuccess) {
+  if (!currentUser) {
+    showSignInModal();
+    return;
+  }
+
   const existingModal = document.getElementById("paywallModal");
   if (existingModal) existingModal.remove();
 
   if (typeof window.Razorpay === "undefined") {
-    alert("Razorpay checkout is still loading. Please check your connection and refresh.");
+    alert("Payment checkout is still loading. Please check your connection and refresh.");
     return;
   }
 
@@ -42,8 +161,7 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
   document.body.insertAdjacentHTML("beforeend", modalHtml);
 
   document.getElementById("paywallCloseBtn").onclick = () => {
-    const modal = document.getElementById("paywallModal");
-    if (modal) modal.remove();
+    document.getElementById("paywallModal").remove();
   };
 
   document.getElementById("paywallCheckoutBtn").onclick = async () => {
@@ -86,10 +204,12 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
             const verifyData = await verifyRes.json();
 
             if (verifyData.success) {
-              proUnlockedDomains.add(hostname);
               localStorage.setItem(`unlocked_${hostname}`, "true");
-              const modal = document.getElementById("paywallModal");
-              if (modal) modal.remove();
+              if (currentUser && !currentUser.unlockedDomains.includes(hostname.toLowerCase())) {
+                currentUser.unlockedDomains.push(hostname.toLowerCase());
+              }
+              document.getElementById("paywallModal")?.remove();
+              updateNavAuthUI();
               if (typeof onSuccess === "function") onSuccess();
             } else {
               alert("Payment verification failed: " + (verifyData.error || "Unknown error"));
@@ -107,6 +227,10 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
             btn.disabled = false;
             btn.textContent = "Unlock Audit for ₹499";
           },
+        },
+        prefill: {
+          name: currentUser.name || "Engineer",
+          email: currentUser.email || "",
         },
         theme: {
           color: "#8b5cf6",
@@ -265,7 +389,7 @@ function renderResults(data, targetId = "results") {
 
   async function executeRemediationRequest() {
     const reportContainer = document.getElementById("reportContainer");
-    reportContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Querying Gemini 3.6 Flash security intelligence engine...</div>';
+    reportContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Querying Gemini security intelligence engine...</div>';
 
     try {
       const res = await fetch("/api/explain", {
@@ -291,9 +415,16 @@ function renderResults(data, targetId = "results") {
               <div class="ai-header-title">
                 <span>✨ Actionable AI Remediation Blueprint</span>
               </div>
-              <span class="ai-pill">Gemini 3.6 Flash</span>
+              <span class="ai-pill">Gemini Flash</span>
             </div>
             <div class="report">${formatMarkdown(resData.aiReport)}</div>
+          </div>
+        `;
+      } else if (resData.aiError) {
+        reportsHtml += `
+          <div class="card" style="border: 1px solid var(--brand-amber); padding: 16px;">
+            <strong style="color: var(--brand-amber);">AI Blueprint Notice:</strong>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">${resData.aiError}</p>
           </div>
         `;
       }
@@ -332,3 +463,6 @@ function renderResults(data, targetId = "results") {
     executeRemediationRequest();
   });
 }
+
+// Check session on script execution
+checkAuthSession();
