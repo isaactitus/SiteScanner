@@ -18,7 +18,19 @@ const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-// ---------- SSRF Guard ----------
+// ---------- Helpers & SSRF Guard ----------
+
+function sanitizeTargetDomain(input) {
+  if (!input || typeof input !== "string") {
+    throw new Error("Target domain is required.");
+  }
+  let clean = input.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, "");
+  if (!clean || clean.includes(" ")) {
+    throw new Error("Invalid domain format provided.");
+  }
+  return clean;
+}
+
 async function validatePublicHostname(hostname) {
   if (!hostname || hostname.toLowerCase() === "localhost") {
     throw new Error("Scanning localhost or internal targets is not permitted.");
@@ -64,6 +76,24 @@ async function validatePublicHostname(hostname) {
 
 // ---------- Check Functions ----------
 
+async function checkHttpsEnforcement(hostname) {
+  try {
+    const res = await fetch(`http://${hostname}`, {
+      method: "GET",
+      redirect: "manual",
+      timeout: 5000,
+    });
+
+    const isRedirect = [301, 302, 307, 308].includes(res.status);
+    const location = res.headers.get("location") || "";
+    const redirectsToHttps = isRedirect && location.startsWith("https://");
+
+    return { redirectsToHttps, plainTextAllowed: !redirectsToHttps };
+  } catch (err) {
+    return { redirectsToHttps: false, plainTextAllowed: false };
+  }
+}
+
 async function checkMalwareBlocklist(targetUrl) {
   const apiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY;
   if (!apiKey) return { checked: false, reason: "no_api_key" };
@@ -102,53 +132,62 @@ async function checkMalwareBlocklist(targetUrl) {
 }
 
 async function checkCookieSecurity(targetUrl) {
-  const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
-  let rawCookies = [];
-  if (typeof res.headers.raw === "function") {
-    rawCookies = res.headers.raw()["set-cookie"] || [];
-  } else {
-    const single = res.headers.get("set-cookie");
-    if (single) rawCookies = [single];
-  }
+  try {
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
+    let rawCookies = [];
+    if (typeof res.headers.raw === "function") {
+      rawCookies = res.headers.raw()["set-cookie"] || [];
+    } else {
+      const single = res.headers.get("set-cookie");
+      if (single) rawCookies = [single];
+    }
 
-  if (rawCookies.length === 0) {
+    if (rawCookies.length === 0) {
+      return { hasCookies: false, cookies: [] };
+    }
+
+    const cookies = rawCookies.map((cookieStr) => {
+      const lower = cookieStr.toLowerCase();
+      const nameMatch = cookieStr.match(/^([^=]+)=/);
+      return {
+        name: nameMatch ? nameMatch[1].trim() : "unknown",
+        secure: lower.includes("secure"),
+        httpOnly: lower.includes("httponly"),
+        sameSite: lower.includes("samesite=strict")
+          ? "Strict"
+          : lower.includes("samesite=lax")
+          ? "Lax"
+          : lower.includes("samesite=none")
+          ? "None"
+          : null,
+      };
+    });
+
+    return { hasCookies: true, cookies };
+  } catch {
     return { hasCookies: false, cookies: [] };
   }
-
-  const cookies = rawCookies.map((cookieStr) => {
-    const lower = cookieStr.toLowerCase();
-    const nameMatch = cookieStr.match(/^([^=]+)=/);
-    return {
-      name: nameMatch ? nameMatch[1].trim() : "unknown",
-      secure: lower.includes("secure"),
-      httpOnly: lower.includes("httponly"),
-      sameSite: lower.includes("samesite=strict")
-        ? "Strict"
-        : lower.includes("samesite=lax")
-        ? "Lax"
-        : lower.includes("samesite=none")
-        ? "None"
-        : null,
-    };
-  });
-
-  return { hasCookies: true, cookies };
 }
 
 async function checkCORS(targetUrl) {
-  const res = await fetch(targetUrl, {
-    method: "GET",
-    headers: { Origin: "https://sitescanner-cors-test.example.com" },
-  });
+  try {
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      headers: { Origin: "https://sitescanner-cors-test.example.com" },
+      timeout: 7000,
+    });
 
-  const allowOrigin = res.headers.get("access-control-allow-origin");
-  const allowCredentials = res.headers.get("access-control-allow-credentials");
+    const allowOrigin = res.headers.get("access-control-allow-origin");
+    const allowCredentials = res.headers.get("access-control-allow-credentials");
 
-  const reflectsAnyOrigin = allowOrigin === "https://sitescanner-cors-test.example.com";
-  const wildcardOpen = allowOrigin === "*";
-  const dangerousCombo = reflectsAnyOrigin && allowCredentials === "true";
+    const reflectsAnyOrigin = allowOrigin === "https://sitescanner-cors-test.example.com";
+    const wildcardOpen = allowOrigin === "*";
+    const dangerousCombo = reflectsAnyOrigin && allowCredentials === "true";
 
-  return { allowOrigin: allowOrigin || null, wildcardOpen, reflectsAnyOrigin, dangerousCombo };
+    return { allowOrigin: allowOrigin || null, wildcardOpen, reflectsAnyOrigin, dangerousCombo };
+  } catch {
+    return { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false };
+  }
 }
 
 const TRACKER_SIGNATURES = [
@@ -166,7 +205,7 @@ const TRACKER_SIGNATURES = [
 
 async function checkTrackers(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
     const html = await res.text();
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
     return { checked: true, trackers: found };
@@ -177,7 +216,7 @@ async function checkTrackers(targetUrl) {
 
 async function checkMixedContent(targetUrl) {
   try {
-    const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow", timeout: 7000 });
     const html = await res.text();
     const isHttps = targetUrl.startsWith("https://");
     if (!isHttps) return { checked: false, insecureResources: [] };
@@ -203,7 +242,7 @@ async function checkSecurityHeaders(targetUrl) {
   let currentUrl = targetUrl;
   let res;
   for (let i = 0; i < 5; i++) {
-    res = await fetch(currentUrl, { method: "GET", redirect: "manual" });
+    res = await fetch(currentUrl, { method: "GET", redirect: "manual", timeout: 7000 });
     if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
       currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
       continue;
@@ -270,6 +309,7 @@ async function checkExposedFiles(baseUrl) {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
+        timeout: 4000,
         headers: { "User-Agent": "SiteScanner/1.0" },
       });
 
@@ -326,43 +366,40 @@ app.post("/api/quickcheck", async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 
   if (!ownershipConfirmed) {
-    return res.status(400).json({ error: "You must confirm you own or have permission to check this domain." });
-  }
-  if (!url) {
-    return res.status(400).json({ error: "Missing url" });
+    return res.status(400).json({ error: "You must confirm authorization to audit this domain." });
   }
 
-  let parsed;
+  let hostname;
   try {
-    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
-  } catch {
-    return res.status(400).json({ error: "Invalid URL" });
-  }
-
-  const hostname = parsed.hostname;
-
-  try {
+    hostname = sanitizeTargetDomain(url);
     await validatePublicHostname(hostname);
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 
+  const targetHttpsUrl = `https://${hostname}`;
+
   try {
-    const [malware, tlsInfo, headersInfo, exposedFiles] = await Promise.allSettled([
-      checkMalwareBlocklist(parsed.toString()),
+    const [malware, tlsInfo, headersInfo, exposedFiles, httpsEnforcement] = await Promise.allSettled([
+      checkMalwareBlocklist(targetHttpsUrl),
       checkTLS(hostname),
-      checkSecurityHeaders(parsed.toString()),
-      checkExposedFiles(parsed.toString()),
+      checkSecurityHeaders(targetHttpsUrl),
+      checkExposedFiles(targetHttpsUrl),
+      checkHttpsEnforcement(hostname),
     ]);
 
     const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false };
     const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false };
     const headersResult = headersInfo.status === "fulfilled" ? headersInfo.value : { missing: [] };
     const exposed = exposedFiles.status === "fulfilled" ? exposedFiles.value : [];
+    const enforcement = httpsEnforcement.status === "fulfilled" ? httpsEnforcement.value : { plainTextAllowed: false };
 
     const criticalIssues = [];
     const warningIssues = [];
 
+    if (enforcement.plainTextAllowed) {
+      criticalIssues.push("Plaintext HTTP is served without redirecting to HTTPS.");
+    }
     if (malwareResult.checked && malwareResult.flagged) {
       criticalIssues.push(`Flagged for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
     }
@@ -422,31 +459,19 @@ app.get("/api/recent", async (req, res) => {
   res.json(feed);
 });
 
-// ---------- Progressive Scan (SSE) ----------
+// ---------- Deep Scan (SSE Stream) ----------
 
 app.get("/api/scan-stream", async (req, res) => {
   const { url, confirmed, listPublicly } = req.query;
 
   if (confirmed !== "true") {
     res.writeHead(400, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ error: "You must confirm you own or have permission to scan this domain." }));
-  }
-  if (!url) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ error: "Missing url" }));
+    return res.end(JSON.stringify({ error: "You must confirm authorization to scan this domain." }));
   }
 
-  let parsed;
+  let hostname;
   try {
-    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
-  } catch {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ error: "Invalid URL" }));
-  }
-
-  const hostname = parsed.hostname;
-
-  try {
+    hostname = sanitizeTargetDomain(url);
     await validatePublicHostname(hostname);
   } catch (err) {
     res.writeHead(200, {
@@ -468,16 +493,18 @@ app.get("/api/scan-stream", async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  const targetHttpsUrl = `https://${hostname}`;
+
   const checkList = [
-    ["headers", "Checking security headers", checkSecurityHeaders(parsed.toString())],
+    ["headers", "Checking security headers", checkSecurityHeaders(targetHttpsUrl)],
     ["tls", "Checking SSL certificate", checkTLS(hostname)],
-    ["exposedFiles", "Checking for exposed files", checkExposedFiles(parsed.toString())],
+    ["exposedFiles", "Checking for exposed files", checkExposedFiles(targetHttpsUrl)],
     ["emailAuth", "Checking email spoofing protection", checkEmailSpoofingProtection(hostname)],
-    ["cookies", "Checking cookie security", checkCookieSecurity(parsed.toString())],
-    ["cors", "Checking CORS policy", checkCORS(parsed.toString())],
-    ["mixedContent", "Checking for mixed content", checkMixedContent(parsed.toString())],
-    ["malware", "Checking malware/phishing status", checkMalwareBlocklist(parsed.toString())],
-    ["trackers", "Checking for tracking scripts", checkTrackers(parsed.toString())],
+    ["cookies", "Checking cookie security", checkCookieSecurity(targetHttpsUrl)],
+    ["cors", "Checking CORS policy", checkCORS(targetHttpsUrl)],
+    ["mixedContent", "Checking for mixed content", checkMixedContent(targetHttpsUrl)],
+    ["malware", "Checking malware/phishing status", checkMalwareBlocklist(targetHttpsUrl)],
+    ["trackers", "Checking for tracking scripts", checkTrackers(targetHttpsUrl)],
   ];
 
   const raw = {};
@@ -538,41 +565,33 @@ app.get("/api/scan-stream", async (req, res) => {
 // ---------- Standard Scan ----------
 
 app.post("/api/scan", async (req, res) => {
-  const { url, ownershipConfirmed } = req.body;
+  const { url, ownershipConfirmed, listPublicly } = req.body;
 
   if (!ownershipConfirmed) {
-    return res.status(400).json({ error: "You must confirm you own or have permission to scan this domain." });
-  }
-  if (!url) {
-    return res.status(400).json({ error: "Missing url" });
+    return res.status(400).json({ error: "You must confirm authorization to scan this domain." });
   }
 
-  let parsed;
+  let hostname;
   try {
-    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
-  } catch {
-    return res.status(400).json({ error: "Invalid URL" });
-  }
-
-  const hostname = parsed.hostname;
-
-  try {
+    hostname = sanitizeTargetDomain(url);
     await validatePublicHostname(hostname);
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 
+  const targetHttpsUrl = `https://${hostname}`;
+
   try {
     const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
-      checkSecurityHeaders(parsed.toString()),
+      checkSecurityHeaders(targetHttpsUrl),
       checkTLS(hostname),
-      checkExposedFiles(parsed.toString()),
+      checkExposedFiles(targetHttpsUrl),
       checkEmailSpoofingProtection(hostname),
-      checkCookieSecurity(parsed.toString()),
-      checkCORS(parsed.toString()),
-      checkMixedContent(parsed.toString()),
-      checkMalwareBlocklist(parsed.toString()),
-      checkTrackers(parsed.toString()),
+      checkCookieSecurity(targetHttpsUrl),
+      checkCORS(targetHttpsUrl),
+      checkMixedContent(targetHttpsUrl),
+      checkMalwareBlocklist(targetHttpsUrl),
+      checkTrackers(targetHttpsUrl),
     ]);
 
     const raw = {
@@ -603,7 +622,7 @@ app.post("/api/scan", async (req, res) => {
 
     await saveLatestScan(hostname, scanResult);
 
-    if (req.body.listPublicly) {
+    if (listPublicly) {
       await addToPublicFeed(hostname, score, grade);
     }
 
@@ -613,7 +632,7 @@ app.post("/api/scan", async (req, res) => {
   }
 });
 
-// ---------- Plain-English Report (Rule-based + Gemini Remediation) ----------
+// ---------- Plain-English & Gemini Remediation ----------
 
 app.post("/api/explain", async (req, res) => {
   const { raw, hostname } = req.body;
