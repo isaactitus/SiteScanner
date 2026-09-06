@@ -1,0 +1,2005 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: node_modules/**, .git/**
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+public/
+  index.html
+  render.js
+  report.html
+  robots.txt
+.gitignore
+fix-code-generator.js
+history-store.js
+package.json
+README.md
+report-generator.js
+server.js
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="public/render.js">
+function renderResults(data, targetId = 'results') {
+  const resultsEl = document.getElementById(targetId);
+  const { raw, hostname, score, grade, previousScan } = data;
+  let html = `<div class="card"><strong>Results for ${hostname}</strong></div>`;
+
+  // Hero grade ring
+  const gradeHex = score >= 75 ? '#4ade80' : score >= 40 ? '#fbbf24' : '#f87171';
+  const circumference = 2 * Math.PI * 40;
+  const offset = circumference - (score / 100) * circumference;
+
+  html += `<div class="card hero-grade-wrap">
+    <div class="grade-ring">
+      <svg viewBox="0 0 96 96">
+        <circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle>
+        <circle class="grade-ring-fg" cx="48" cy="48" r="40"
+          stroke="${gradeHex}"
+          stroke-dasharray="${circumference}"
+          stroke-dashoffset="${offset}"></circle>
+      </svg>
+      <div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div>
+    </div>
+    <div class="hero-grade-info">
+      <div class="hero-grade-score">${score}/100</div>`;
+
+  if (previousScan) {
+    const delta = score - previousScan.score;
+    const deltaText = delta > 0 ? `+${delta}` : `${delta}`;
+    const deltaColor = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : 'var(--muted)';
+    html += `<div class="hero-grade-delta" style="color:${deltaColor};">${previousScan.grade} → ${grade} (${deltaText}) since last scan</div>`;
+  } else {
+    html += `<div class="hero-grade-delta" style="color:var(--muted);">First scan of this site</div>`;
+  }
+  html += `</div></div>`;
+
+  // At-a-glance summary counts
+  let critical = 0, warning = 0, passed = 0;
+  if (!raw.tls?.valid) critical++; else passed++;
+  (raw.headers?.missing || []).forEach(() => critical++);
+  (raw.headers?.present || []).forEach(() => passed++);
+  if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
+  if (!raw.emailAuth?.spf) warning++; else passed++;
+  if (!raw.emailAuth?.dmarc) warning++; else passed++;
+  if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
+  if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) warning++; else if (raw.mixedContent?.checked) passed++;
+  if (raw.malware?.checked && raw.malware.flagged) critical++; else if (raw.malware?.checked) passed++;
+
+  html += `<div class="summary-line">
+    <span class="summary-critical">${critical} critical</span> ·
+    <span class="summary-warning">${warning} warning${warning !== 1 ? 's' : ''}</span> ·
+    <span class="summary-passed">${passed} passed</span>
+  </div>`;
+
+  // TLS
+  html += `<div class="card fade-in"><strong>🔒 SSL/TLS Certificate</strong>`;
+  if (raw.tls.valid) {
+    const days = raw.tls.daysUntilExpiry;
+    const cls = days < 14 ? 'bad' : days < 30 ? 'warn' : 'ok';
+    html += `<div class="result-item"><span>Expires in</span><span class="status ${cls}">${days} days</span></div>`;
+    html += `<div class="result-item"><span>Issuer</span><span>${raw.tls.issuer}</span></div>`;
+  } else {
+    html += `<div class="result-item"><span>Certificate check failed</span><span class="status bad">${raw.tls.error || 'error'}</span></div>`;
+  }
+  html += `</div>`;
+
+  // Headers
+  html += `<div class="card fade-in"><strong>🛡️ Security Headers</strong>`;
+  (raw.headers.missing || []).forEach(h => {
+    html += `<div class="result-item"><span>${h}</span><span class="status bad">Missing</span></div>`;
+  });
+  (raw.headers.present || []).forEach(h => {
+    html += `<div class="result-item"><span>${h}</span><span class="status ok">Present</span></div>`;
+  });
+  html += `</div>`;
+
+  // Exposed files
+  html += `<div class="card fade-in"><strong>📁 Exposed Sensitive Files</strong>`;
+  if (raw.exposedFiles.length === 0) {
+    html += `<div class="result-item"><span>None found</span><span class="status ok">Good</span></div>`;
+  } else {
+    raw.exposedFiles.forEach(f => {
+      html += `<div class="result-item"><span>${f.path}</span><span class="status bad">Exposed</span></div>`;
+    });
+  }
+  html += `</div>`;
+
+  // Email spoofing
+  html += `<div class="card fade-in"><strong>✉️ Email Spoofing Protection</strong>`;
+  html += `<div class="result-item"><span>SPF record</span><span class="status ${raw.emailAuth.spf ? 'ok' : 'warn'}">${raw.emailAuth.spf ? 'Found' : 'Missing'}</span></div>`;
+  html += `<div class="result-item"><span>DMARC record</span><span class="status ${raw.emailAuth.dmarc ? 'ok' : 'warn'}">${raw.emailAuth.dmarc ? 'Found' : 'Missing'}</span></div>`;
+  html += `</div>`;
+
+  // Cookies
+  if (raw.cookies?.hasCookies) {
+    html += `<div class="card fade-in"><strong>🍪 Cookie Security</strong>`;
+    raw.cookies.cookies.forEach(c => {
+      const secure = c.secure && c.httpOnly;
+      html += `<div class="result-item"><span>${c.name}</span><span class="status ${secure ? 'ok' : 'warn'}">${secure ? 'Secured' : 'Missing flags'}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  // CORS
+  html += `<div class="card fade-in"><strong>🌐 CORS Policy</strong>`;
+  if (raw.cors?.dangerousCombo) {
+    html += `<div class="result-item"><span>Reflects origin + credentials</span><span class="status bad">Dangerous</span></div>`;
+  } else if (raw.cors?.wildcardOpen) {
+    html += `<div class="result-item"><span>Allows any origin</span><span class="status warn">Open</span></div>`;
+  } else {
+    html += `<div class="result-item"><span>Origin restrictions</span><span class="status ok">Good</span></div>`;
+  }
+  html += `</div>`;
+
+  // Mixed content
+  if (raw.mixedContent?.checked) {
+    html += `<div class="card fade-in"><strong>🔓 Mixed Content</strong>`;
+    if (raw.mixedContent.insecureResources.length === 0) {
+      html += `<div class="result-item"><span>HTTP resources on HTTPS page</span><span class="status ok">None found</span></div>`;
+    } else {
+      html += `<div class="result-item"><span>Insecure resources found</span><span class="status bad">${raw.mixedContent.insecureResources.length}</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Malware/blocklist
+  if (raw.malware?.checked) {
+    html += `<div class="card fade-in"><strong>🚨 Malware / Phishing Check</strong>`;
+    if (raw.malware.flagged) {
+      html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status bad">FLAGGED</span></div>`;
+    } else {
+      html += `<div class="result-item"><span>Google Safe Browsing</span><span class="status ok">Clean</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Trackers
+  if (raw.trackers?.checked) {
+    html += `<div class="card fade-in"><strong>👁️ Tracking Scripts</strong>`;
+    if (raw.trackers.trackers.length === 0) {
+      html += `<div class="result-item"><span>Known trackers</span><span class="status ok">None detected</span></div>`;
+    } else {
+      raw.trackers.trackers.forEach(t => {
+        html += `<div class="result-item"><span>${t}</span><span class="status warn">Detected</span></div>`;
+      });
+    }
+    html += `</div>`;
+  }
+
+  html += `<button id="explainBtn">Get Plain-English Report</button>`;
+  resultsEl.innerHTML = html;
+
+  document.getElementById('explainBtn').addEventListener('click', async () => {
+    resultsEl.insertAdjacentHTML('beforeend', '<div class="card loading">Generating report…</div>');
+    const res = await fetch('/api/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw, hostname }),
+    });
+    const data = await res.json();
+    document.querySelector('.loading').outerHTML = `<div class="card report">${data.report || data.error}</div>`;
+  });
+}
+
+// Apply staggered fade-in timing to result cards after they're inserted into the DOM.
+function applyStaggeredFadeIn(containerEl) {
+  const cards = containerEl.querySelectorAll('.fade-in');
+  cards.forEach((el, i) => {
+    el.style.animationDelay = `${i * 70}ms`;
+  });
+}
+</file>
+
+<file path="public/report.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Security Report</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --accent:#4ade80; --warn:#fbbf24; --bad:#f87171; --text:#e5e7eb; --muted:#94a3b8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); padding:24px 16px 60px; }
+  .wrap { max-width:640px; margin:0 auto; }
+  h1 { font-size:1.3rem; }
+  p.sub { color:var(--muted); font-size:0.9rem; }
+  .card { background:var(--panel); border-radius:14px; padding:18px; margin-top:16px; border:1px solid #1f2937; }
+  .result-item { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #1f2937; font-size:0.92rem; }
+  .result-item:last-child { border-bottom:none; }
+  .status { font-weight:600; }
+  .ok { color:var(--accent); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .loading { color:var(--muted); text-align:center; padding:20px; }
+  .report { white-space:pre-wrap; line-height:1.5; font-size:0.95rem; }
+  .hero-grade-wrap { display:flex; align-items:center; gap:20px; padding:24px; }
+  .grade-ring { position:relative; width:96px; height:96px; flex-shrink:0; }
+  .grade-ring svg { transform:rotate(-90deg); width:100%; height:100%; }
+  .grade-ring-bg { fill:none; stroke:#1f2937; stroke-width:8; }
+  .grade-ring-fg { fill:none; stroke-width:8; stroke-linecap:round; }
+  .grade-ring-letter { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; }
+  .hero-grade-info { flex:1; }
+  .hero-grade-score { font-size:0.9rem; color:var(--muted); }
+  .hero-grade-delta { font-size:0.85rem; margin-top:4px; }
+  .summary-line { text-align:center; font-size:0.9rem; color:var(--muted); padding:0 0 16px; }
+  .summary-critical { color:var(--bad); font-weight:600; }
+  .summary-warning { color:var(--warn); font-weight:600; }
+  .summary-passed { color:var(--accent); font-weight:600; }
+  .fade-in { opacity:0; animation:fadeInUp 0.4s ease forwards; }
+  @keyframes fadeInUp { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+  a.back { color:var(--accent); font-size:0.9rem; text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Run your own scan</a>
+  <h1>🔍 Public Security Report</h1>
+  <p class="sub" id="subline">Loading…</p>
+  <div id="results"></div>
+</div>
+<script src="/render.js"></script>
+<script>
+(async () => {
+  const hostname = window.location.pathname.replace('/report/', '');
+  const resultsEl = document.getElementById('results');
+  const subline = document.getElementById('subline');
+
+  try {
+    const res = await fetch('/api/report/' + encodeURIComponent(hostname));
+    const data = await res.json();
+
+    if (data.error) {
+      subline.textContent = data.error;
+      return;
+    }
+
+    subline.textContent = 'Scanned ' + new Date(data.savedAt).toLocaleString();
+    renderResults(data);
+    applyStaggeredFadeIn(resultsEl);
+
+    // Explain button on shared reports still works, reusing /api/explain
+  } catch (err) {
+    subline.textContent = 'Failed to load report: ' + err.message;
+  }
+})();
+</script>
+</body>
+</html>
+</file>
+
+<file path="public/robots.txt">
+User-agent: *
+Allow: /
+</file>
+
+<file path=".gitignore">
+node_modules/
+.env
+data/
+</file>
+
+<file path="fix-code-generator.js">
+// fix-code-generator.js
+//
+// Generates actual, syntactically correct configuration snippets for the
+// missing security headers found in a scan — tailored to the detected
+// hosting platform. This is NOT AI-generated text; every template here is
+// hand-written against each platform's own official documentation syntax:
+//
+//   Vercel   -> next.config.js headers() API
+//              https://nextjs.org/docs/app/api-reference/config/next-config-js/headers
+//   Apache   -> mod_headers "Header set" directive (.htaccess)
+//              https://httpd.apache.org/docs/current/mod/mod_headers.html
+//   Nginx    -> add_header directive (nginx.conf / server block)
+//              https://nginx.org/en/docs/http/ngx_http_headers_module.html
+//   Netlify  -> _headers file syntax
+//              https://docs.netlify.com/routing/headers/
+//   Generic  -> raw HTTP header names/values, for any other stack
+//
+// IMPORTANT FRAMING: this is a correct STARTING POINT to review and adapt,
+// not a blind paste-and-forget fix. Every existing site has its own config
+// already in place, and merging carelessly can break things. The generated
+// output always carries that caveat — this file must never present output
+// as guaranteed-safe-to-deploy-as-is.
+
+const HEADER_VALUES = {
+  "content-security-policy": "default-src 'self'",
+  "strict-transport-security": "max-age=63072000; includeSubDomains",
+  "x-frame-options": "SAMEORIGIN",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+};
+
+// Human-readable header name as it appears in actual HTTP responses
+// (the raw scan data lowercases these, but real headers are capitalized).
+const HEADER_DISPLAY_NAMES = {
+  "content-security-policy": "Content-Security-Policy",
+  "strict-transport-security": "Strict-Transport-Security",
+  "x-frame-options": "X-Frame-Options",
+  "x-content-type-options": "X-Content-Type-Options",
+  "referrer-policy": "Referrer-Policy",
+  "permissions-policy": "Permissions-Policy",
+};
+
+function generateVercelSnippet(missingHeaders) {
+  const headerEntries = missingHeaders
+    .map(
+      (h) => `          {
+            key: '${HEADER_DISPLAY_NAMES[h]}',
+            value: "${HEADER_VALUES[h]}",
+          },`
+    )
+    .join("\n");
+
+  return `// next.config.js
+module.exports = {
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+${headerEntries}
+        ],
+      },
+    ];
+  },
+};`;
+}
+
+function generateApacheSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `    Header set ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}"`)
+    .join("\n");
+
+  return `# .htaccess (requires mod_headers enabled)
+<IfModule mod_headers.c>
+${lines}
+</IfModule>`;
+}
+
+function generateNginxSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `    add_header ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}" always;`)
+    .join("\n");
+
+  return `# Inside your server { } block in nginx.conf
+${lines}`;
+}
+
+function generateNetlifySnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `  ${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
+    .join("\n");
+
+  return `# _headers file, placed in your site's publish directory
+/*
+${lines}`;
+}
+
+function generateGenericSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
+    .join("\n");
+
+  return `# Raw HTTP header names and values — add these via whatever
+# mechanism your server/framework/CDN provides:
+${lines}`;
+}
+
+function generateFixCode(platform, missingHeaders) {
+  if (!missingHeaders || missingHeaders.length === 0) return null;
+
+  // Only generate for headers we have known-good values for
+  const known = missingHeaders.filter((h) => HEADER_VALUES[h]);
+  if (known.length === 0) return null;
+
+  let code;
+  let label;
+
+  switch (platform) {
+    case "vercel":
+      code = generateVercelSnippet(known);
+      label = "next.config.js (Vercel / Next.js)";
+      break;
+    case "apache":
+      code = generateApacheSnippet(known);
+      label = ".htaccess (Apache)";
+      break;
+    case "nginx":
+      code = generateNginxSnippet(known);
+      label = "nginx.conf (Nginx)";
+      break;
+    case "wordpress":
+      // WordPress usually sits on Apache or Nginx under the hood — Apache
+      // (.htaccess) is the far more common default on shared WP hosting.
+      code = generateApacheSnippet(known);
+      label = ".htaccess (most WordPress hosts use Apache)";
+      break;
+    default:
+      code = generateGenericSnippet(known);
+      label = "Raw header values (platform not detected)";
+  }
+
+  return {
+    label,
+    code,
+    disclaimer:
+      "This is a correct starting point based on standard syntax for this platform — not a guaranteed drop-in fix. Review it against your existing config before deploying, since merging blindly can break an existing setup.",
+  };
+}
+
+export { generateFixCode };
+</file>
+
+<file path="README.md">
+# SiteScanner
+
+A free, passive security health checker for small business websites. Built to explain security issues in plain English — not just dump raw scan data.
+
+## What it checks (all read-only, non-intrusive)
+- SSL/TLS certificate validity and expiry
+- Missing security headers (CSP, HSTS, X-Frame-Options, etc.)
+- Common exposed sensitive files (.env, .git/config, backup files)
+- Email spoofing protection (SPF, DMARC records)
+
+## What it deliberately does NOT do
+- No exploitation, no brute forcing, no unauthorized access attempts
+- No port scanning of arbitrary hosts
+- No scanning without the user confirming ownership/permission (enforced in the UI)
+
+This keeps the tool in the same legal/ethical category as tools like SSL Labs or Mozilla Observatory — informational, passive, consent-gated.
+
+## Setup
+
+```bash
+npm install
+export OPENROUTER_API_KEY=your_key_here   # optional, needed for the AI plain-English report
+npm start
+```
+
+Visit `http://localhost:3000`.
+
+## Deploying
+Same pattern as StarredList — deploy to Vercel or Render. Note: this is an Express server (not just static), so on Vercel you'll want to use it as a Serverless Function or deploy on Render/Railway instead, which handle long-running Node servers more simply.
+
+## Roadmap ideas
+- Add WordPress/CMS version detection (safe, header/meta-based only)
+- Historical scan tracking (store past scans, show trend over time)
+- Email report delivery
+- Batch scanning for multiple domains (agencies managing several client sites)
+
+## Legal note
+This tool is for scanning domains you own or have explicit written permission to test. Scanning third-party systems without authorization may violate computer misuse laws in your jurisdiction, regardless of intent.
+</file>
+
+<file path="history-store.js">
+// history-store.js
+//
+// Stores past scan scores per hostname so re-scanning the same site shows
+// real progress over time ("improved from F to B since last scan"), not
+// just a fresh one-shot snapshot every time.
+//
+// Uses a plain JSON file on disk — no database setup required. This is
+// intentionally simple: fine for a free single-instance tool at this scale.
+// Known limitation, stated honestly: on hosts with an ephemeral filesystem
+// (some free tiers wipe disk on redeploy, not on restart), history can be
+// lost on redeploy. Worth upgrading to a real database (e.g. SQLite file,
+// or a hosted Postgres) if/when this matters — this file is written so that
+// swap is a single-module change, not a rewrite.
+
+import fs from "fs/promises";
+import path from "path";
+
+const DATA_DIR = path.join(process.cwd(), "data");
+const HISTORY_FILE = path.join(DATA_DIR, "scan-history.json");
+const MAX_ENTRIES_PER_HOST = 20;
+
+async function ensureDataFile() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.access(HISTORY_FILE);
+  } catch {
+    await fs.writeFile(HISTORY_FILE, JSON.stringify({}), "utf-8");
+  }
+}
+
+async function readAll() {
+  await ensureDataFile();
+  try {
+    const raw = await fs.readFile(HISTORY_FILE, "utf-8");
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("Failed to read history file, starting fresh:", err.message);
+    return {};
+  }
+}
+
+async function writeAll(data) {
+  await ensureDataFile();
+  await fs.writeFile(HISTORY_FILE, JSON.stringify(data, null, 2), "utf-8");
+}
+
+// Records a new scan result and returns the PREVIOUS entry (if any) so the
+// caller can show a before/after comparison immediately, without a second read.
+async function recordScan(hostname, score, grade) {
+  const all = await readAll();
+  const existing = all[hostname] || [];
+  const previous = existing.length > 0 ? existing[existing.length - 1] : null;
+
+  const entry = { timestamp: new Date().toISOString(), score, grade };
+  const updated = [...existing, entry].slice(-MAX_ENTRIES_PER_HOST);
+
+  all[hostname] = updated;
+  await writeAll(all);
+
+  return { previous, history: updated };
+}
+
+async function getHistory(hostname) {
+  const all = await readAll();
+  return all[hostname] || [];
+}
+
+export { recordScan, getHistory };
+
+// ---------- Latest full scan (for shareable /report/:hostname links) ----------
+
+const LATEST_FILE = path.join(DATA_DIR, "latest-scans.json");
+
+async function ensureLatestFile() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.access(LATEST_FILE);
+  } catch {
+    await fs.writeFile(LATEST_FILE, JSON.stringify({}), "utf-8");
+  }
+}
+
+async function saveLatestScan(hostname, data) {
+  await ensureLatestFile();
+  let all = {};
+  try {
+    all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
+  } catch {}
+  all[hostname] = { ...data, savedAt: new Date().toISOString() };
+  await fs.writeFile(LATEST_FILE, JSON.stringify(all, null, 2), "utf-8");
+}
+
+async function getLatestScan(hostname) {
+  await ensureLatestFile();
+  try {
+    const all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
+    return all[hostname] || null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Public activity feed (opt-in only) ----------
+
+const FEED_FILE = path.join(DATA_DIR, "public-feed.json");
+const MAX_FEED_ITEMS = 15;
+
+async function ensureFeedFile() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.access(FEED_FILE);
+  } catch {
+    await fs.writeFile(FEED_FILE, JSON.stringify([]), "utf-8");
+  }
+}
+
+async function addToPublicFeed(hostname, score, grade) {
+  await ensureFeedFile();
+  let feed = [];
+  try {
+    feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+  } catch {}
+  feed.unshift({ hostname, score, grade, timestamp: new Date().toISOString() });
+  feed = feed.slice(0, MAX_FEED_ITEMS);
+  await fs.writeFile(FEED_FILE, JSON.stringify(feed, null, 2), "utf-8");
+}
+
+async function getPublicFeed() {
+  await ensureFeedFile();
+  try {
+    return JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+export { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed };
+</file>
+
+<file path="package.json">
+{
+  "name": "sitescanner",
+  "version": "1.0.0",
+  "description": "Free passive security health checker for small business websites",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.5"
+  }
+}
+</file>
+
+<file path="report-generator.js">
+// report-generator.js
+// A rule-based (non-AI) engine that turns raw scan data into a genuinely
+// useful, prioritized, plain-English report. No external API calls, no
+// rate limits, no cost — runs instantly, forever, for free.
+
+import { generateFixCode } from "./fix-code-generator.js";
+
+// ---------- Platform detection ----------
+// Tailors fix instructions to the actual hosting stack instead of generic advice.
+function detectPlatform(headers, exposedFiles) {
+  const h = headers || {};
+  const server = (h.server || "").toLowerCase();
+  const poweredBy = (h.xPoweredBy || "").toLowerCase();
+
+  if (server.includes("vercel") || h.xVercelId) return "vercel";
+  if (poweredBy.includes("wordpress") || (exposedFiles || []).some(f => f.path.includes("wp-"))) return "wordpress";
+  if (server.includes("nginx")) return "nginx";
+  if (server.includes("apache")) return "apache";
+  if (server.includes("cloudflare")) return "cloudflare";
+  return "unknown";
+}
+
+// ---------- Severity scoring ----------
+// Not all issues are equal. Missing CSP is a bigger deal than missing
+// Permissions-Policy. This weighting drives both the score and the
+// "fix this first" ordering.
+const HEADER_SEVERITY = {
+  "content-security-policy": 20,
+  "strict-transport-security": 18,
+  "x-frame-options": 12,
+  "x-content-type-options": 8,
+  "referrer-policy": 6,
+  "permissions-policy": 6,
+};
+
+function calculateScore(raw) {
+  let score = 100;
+  const deductions = [];
+
+  // TLS
+  if (!raw.tls?.valid) {
+    score -= 30;
+    deductions.push({ reason: "SSL/TLS certificate invalid or unreachable", points: 30 });
+  } else if (raw.tls.daysUntilExpiry !== null && raw.tls.daysUntilExpiry < 14) {
+    score -= 10;
+    deductions.push({ reason: "SSL certificate expiring very soon", points: 10 });
+  }
+
+  // Headers
+  (raw.headers?.missing || []).forEach((h) => {
+    const pts = HEADER_SEVERITY[h] || 5;
+    score -= pts;
+    deductions.push({ reason: `Missing ${h} header`, points: pts });
+  });
+
+  // Exposed files — always severe, these are direct data leaks
+  const exposedCount = (raw.exposedFiles || []).length;
+  if (exposedCount > 0) {
+    const pts = Math.min(exposedCount * 15, 40);
+    score -= pts;
+    deductions.push({ reason: `${exposedCount} sensitive file(s) publicly exposed`, points: pts });
+  }
+
+  // Email spoofing
+  if (!raw.emailAuth?.spf) {
+    score -= 5;
+    deductions.push({ reason: "No SPF record", points: 5 });
+  }
+  if (!raw.emailAuth?.dmarc) {
+    score -= 5;
+    deductions.push({ reason: "No DMARC record", points: 5 });
+  }
+
+  // Cookies
+  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
+  if (insecureCookies.length > 0) {
+    const pts = Math.min(insecureCookies.length * 8, 20);
+    score -= pts;
+    deductions.push({ reason: `${insecureCookies.length} cookie(s) missing Secure/HttpOnly flags`, points: pts });
+  }
+
+  // CORS
+  if (raw.cors?.dangerousCombo) {
+    score -= 20;
+    deductions.push({ reason: "Dangerous CORS config: reflects any origin + allows credentials", points: 20 });
+  } else if (raw.cors?.wildcardOpen) {
+    score -= 8;
+    deductions.push({ reason: "CORS wide open (Access-Control-Allow-Origin: *)", points: 8 });
+  }
+
+  // Mixed content
+  if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) {
+    const pts = Math.min(raw.mixedContent.insecureResources.length * 4, 15);
+    score -= pts;
+    deductions.push({ reason: `${raw.mixedContent.insecureResources.length} insecure (HTTP) resource(s) on HTTPS page`, points: pts });
+  }
+
+  // Malware/blocklist — most severe possible finding, weighted accordingly
+  if (raw.malware?.checked && raw.malware.flagged) {
+    score -= 50;
+    deductions.push({ reason: `Flagged by Google Safe Browsing: ${(raw.malware.threatTypes || []).join(", ")}`, points: 50 });
+  }
+
+  return { score: Math.max(0, Math.round(score)), deductions };
+}
+
+// ---------- Explanation templates ----------
+// Multiple phrasing variants per issue so reports don't read like a robotic
+// copy-paste — one is picked based on a simple hash of the hostname so the
+// SAME site always gets the SAME phrasing (consistent), but different sites
+// get variety.
+
+const HEADER_EXPLANATIONS = {
+  "content-security-policy": {
+    what: [
+      "Your site doesn't tell browsers which sources of scripts, styles, and content are allowed to run.",
+      "There's no policy in place restricting what content sources your site trusts.",
+    ],
+    why: [
+      "Without this, if an attacker manages to inject malicious code (via a comment field, ad, or compromised script), the browser has no rules stopping it from running.",
+      "This is one of the strongest defenses against cross-site scripting (XSS) attacks — without it, injected scripts run freely.",
+    ],
+    fix: {
+      vercel: "Add a `headers()` block in your `next.config.js` (or `vercel.json`) setting Content-Security-Policy. Start permissive (e.g. `default-src 'self'`) and tighten gradually.",
+      wordpress: "Use a security plugin like Wordfence or Really Simple SSL, which can set CSP headers without touching code.",
+      unknown: "Add a Content-Security-Policy header at your server or CDN level. Start with `default-src 'self'` and expand as needed.",
+    },
+  },
+  "strict-transport-security": {
+    what: [
+      "Your site doesn't instruct browsers to always use HTTPS for future visits.",
+      "There's no enforcement telling browsers 'never load this site over plain HTTP.'",
+    ],
+    why: [
+      "Without it, a user's first visit (or a network attacker) could downgrade them to an insecure HTTP connection, exposing data in transit.",
+      "This closes a small but real window where traffic could be intercepted before HTTPS kicks in.",
+    ],
+    fix: {
+      vercel: "Add `Strict-Transport-Security: max-age=63072000; includeSubDomains` via your `next.config.js` headers config.",
+      wordpress: "Most security plugins (Wordfence, iThemes Security) have a one-click HSTS toggle.",
+      unknown: "Add `Strict-Transport-Security: max-age=63072000; includeSubDomains` at your server/CDN config.",
+    },
+  },
+  "x-frame-options": {
+    what: [
+      "Your site can be embedded inside an invisible iframe on another website.",
+      "There's nothing stopping other sites from loading your pages inside a hidden frame.",
+    ],
+    why: [
+      "This enables 'clickjacking' — tricking users into clicking something on your real site while thinking they're interacting with a different page.",
+      "Attackers can layer your login/payment buttons under fake content to steal clicks.",
+    ],
+    fix: {
+      vercel: "Add `X-Frame-Options: DENY` (or `SAMEORIGIN` if you legitimately need framing) in your headers config.",
+      wordpress: "Enable clickjacking protection in your security plugin's settings.",
+      unknown: "Add `X-Frame-Options: DENY` or `SAMEORIGIN` at your server config.",
+    },
+  },
+  "x-content-type-options": {
+    what: [
+      "Browsers are allowed to guess file types instead of trusting what your server declares.",
+    ],
+    why: [
+      "This 'MIME sniffing' can let a malicious file disguised as an image actually execute as a script.",
+    ],
+    fix: {
+      vercel: "Add `X-Content-Type-Options: nosniff` in your headers config — one line, no downside.",
+      wordpress: "Most security plugins enable this by default; check under HTTP headers settings.",
+      unknown: "Add `X-Content-Type-Options: nosniff` at your server config — safe, simple, no downside.",
+    },
+  },
+  "referrer-policy": {
+    what: [
+      "Your site doesn't control how much of your URL gets shared with other sites when users click outbound links.",
+    ],
+    why: [
+      "Full URLs (which can contain session tokens, search queries, or internal page structure) may leak to third-party sites in the Referer header.",
+    ],
+    fix: {
+      vercel: "Add `Referrer-Policy: strict-origin-when-cross-origin` in your headers config — a safe, commonly used default.",
+      wordpress: "Set this via your security plugin, or add it through a header-management plugin.",
+      unknown: "Add `Referrer-Policy: strict-origin-when-cross-origin` at your server config.",
+    },
+  },
+  "permissions-policy": {
+    what: [
+      "Your site doesn't restrict which browser features (camera, microphone, geolocation) pages are allowed to request.",
+    ],
+    why: [
+      "If a third-party script gets injected via any other vulnerability, this is one more layer stopping it from accessing sensitive device features.",
+    ],
+    fix: {
+      vercel: "Add a `Permissions-Policy` header disabling features you don't use, e.g. `camera=(), microphone=(), geolocation=()`.",
+      wordpress: "Lower priority — add via a header plugin once the higher-severity items above are fixed.",
+      unknown: "Add a `Permissions-Policy` header disabling unused browser features.",
+    },
+  },
+};
+
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function scoreToGrade(score) {
+  if (score >= 90) return "A";
+  if (score >= 75) return "B";
+  if (score >= 60) return "C";
+  if (score >= 40) return "D";
+  return "F";
+}
+
+function pick(arr, seed) {
+  return arr[seed % arr.length];
+}
+
+// ---------- Main report builder ----------
+
+function generateReport(raw, hostname) {
+  const { score, deductions } = calculateScore(raw);
+  const platform = detectPlatform(raw.headers, raw.exposedFiles);
+  const seed = simpleHash(hostname);
+
+  let grade = scoreToGrade(score);
+
+  const lines = [];
+  lines.push(`# Security Scan Report for ${hostname}`);
+  lines.push("");
+  lines.push(`## Overall Grade: ${grade} (${score}/100)`);
+  lines.push("");
+
+  if (score >= 90) {
+    lines.push("Excellent shape. Your site has strong, well-configured security fundamentals — only minor polish items below, if any.");
+  } else if (score >= 75) {
+    lines.push("Good foundation. Your core security (SSL, no exposed files) is solid, with some straightforward hardening left to do.");
+  } else if (score >= 60) {
+    lines.push("Decent starting point, but there are a few gaps worth closing soon — none of these are emergencies, but they add up.");
+  } else if (score >= 40) {
+    lines.push("Several important protections are missing. None of this means you've been hacked, but you're more exposed than you should be.");
+  } else {
+    lines.push("This site has significant gaps. Start with the highest-priority items below as soon as you can.");
+  }
+  lines.push("");
+
+  // Sort issues by severity for "fix this first" ordering
+  const sortedDeductions = [...deductions].sort((a, b) => b.points - a.points);
+  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
+
+  if (sortedDeductions.length === 0) {
+    lines.push("## No issues found");
+    lines.push("Every check passed. Nothing to fix right now — just keep an eye on your SSL renewal date.");
+  } else {
+    lines.push("## Issues Found (highest priority first)");
+    lines.push("");
+
+    let num = 1;
+
+    // Malware/blocklist — always shown first, most urgent possible finding
+    if (raw.malware?.checked && raw.malware.flagged) {
+      lines.push(`### ${num}. 🚨 Flagged by Google Safe Browsing`);
+      lines.push(`**What this means:** Google has flagged this site for: ${(raw.malware.threatTypes || []).join(", ").toLowerCase()}.`);
+      lines.push(`**Why it matters:** This is urgent — browsers (Chrome, Firefox, Safari) will show a full-page warning to visitors, and search engines will demote or delist the site. This usually means the site has been compromised.`);
+      lines.push(`**Fix:** Check Google Search Console immediately for details, scan your site files for injected/unknown code, change all admin passwords, and request a review from Google once cleaned up.`);
+      lines.push("");
+      num++;
+    }
+
+    // TLS issues
+    if (!raw.tls?.valid) {
+      lines.push(`### ${num}. SSL Certificate Problem`);
+      lines.push(`**What this means:** ${raw.tls?.error || "Your site's SSL certificate couldn't be verified."}`);
+      lines.push(`**Why it matters:** Visitors will see security warnings, browsers may block the page entirely, and search engines penalize insecure sites.`);
+      lines.push(`**Fix:** Check your certificate configuration with your hosting provider immediately — this is the highest priority item on this list.`);
+      lines.push("");
+      num++;
+    } else if (raw.tls.daysUntilExpiry !== null && raw.tls.daysUntilExpiry < 14) {
+      lines.push(`### ${num}. SSL Certificate Expiring Soon`);
+      lines.push(`**What this means:** Your certificate expires in ${raw.tls.daysUntilExpiry} days.`);
+      lines.push(`**Why it matters:** An expired certificate shows scary browser warnings to every visitor and can drop your search rankings.`);
+      lines.push(`**Fix:** Most hosts (Vercel, Netlify, Cloudflare) auto-renew — verify auto-renewal is enabled in your dashboard.`);
+      lines.push("");
+      num++;
+    }
+
+    // Exposed files
+    if ((raw.exposedFiles || []).length > 0) {
+      lines.push(`### ${num}. Exposed Sensitive Files`);
+      lines.push(`**What this means:** These paths are publicly accessible: ${raw.exposedFiles.map(f => f.path).join(", ")}`);
+      lines.push(`**Why it matters:** These files often contain database passwords, API keys, or source code — anyone can view them right now.`);
+      lines.push(`**Fix:** Remove or block public access to these files immediately. This is urgent — treat it like a live incident, not a backlog item.`);
+      lines.push("");
+      num++;
+    }
+
+    // Headers, sorted by severity
+    const missingHeaders = (raw.headers?.missing || []).sort(
+      (a, b) => (HEADER_SEVERITY[b] || 5) - (HEADER_SEVERITY[a] || 5)
+    );
+    missingHeaders.forEach((h) => {
+      const info = HEADER_EXPLANATIONS[h];
+      if (!info) return;
+      lines.push(`### ${num}. Missing ${h} Header`);
+      lines.push(`**What this means:** ${pick(info.what, seed + num)}`);
+      lines.push(`**Why it matters:** ${pick(info.why, seed + num)}`);
+      lines.push(`**Fix:** ${info.fix[platform] || info.fix.unknown}`);
+      lines.push("");
+      num++;
+    });
+
+    // Combined copy-paste fix code for all missing headers at once —
+    // real syntax for the detected platform, not just prose per-header advice.
+    const fixCode = generateFixCode(platform, missingHeaders);
+    if (fixCode) {
+      lines.push(`### Ready-to-review code: ${fixCode.label}`);
+      lines.push(`_${fixCode.disclaimer}_`);
+      lines.push("");
+      lines.push("```");
+      lines.push(fixCode.code);
+      lines.push("```");
+      lines.push("");
+    }
+
+    // Email auth
+    if (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc) {
+      lines.push(`### ${num}. Email Spoofing Protection Incomplete`);
+      const missing = [];
+      if (!raw.emailAuth?.spf) missing.push("SPF");
+      if (!raw.emailAuth?.dmarc) missing.push("DMARC");
+      lines.push(`**What this means:** ${missing.join(" and ")} record(s) not found for this domain.`);
+      lines.push(`**Why it matters:** Without these, scammers can send emails that appear to come from your domain, which can damage your reputation and get legitimate emails from you marked as spam.`);
+      lines.push(`**Fix:** Add these DNS TXT records through your domain registrar (GoDaddy, Namecheap, etc.) — most offer guided setup wizards. Skip this if your domain doesn't send email at all.`);
+      lines.push("");
+      num++;
+    }
+
+    // Cookie security
+    if (insecureCookies.length > 0) {
+      lines.push(`### ${num}. Insecure Cookie Configuration`);
+      lines.push(`**What this means:** ${insecureCookies.map(c => c.name).join(", ")} ${insecureCookies.length > 1 ? "are" : "is"} missing the Secure and/or HttpOnly flag.`);
+      lines.push(`**Why it matters:** Without \`Secure\`, cookies can be sent over unencrypted connections. Without \`HttpOnly\`, malicious JavaScript (from an XSS attack) can steal the cookie directly — often used to hijack logged-in sessions.`);
+      lines.push(`**Fix:** Set \`Secure; HttpOnly; SameSite=Lax\` (or \`Strict\`) on every cookie your server sets, especially session/auth cookies.`);
+      lines.push("");
+      num++;
+    }
+
+    // CORS
+    if (raw.cors?.dangerousCombo) {
+      lines.push(`### ${num}. Dangerous CORS Configuration`);
+      lines.push(`**What this means:** Your site reflects back any origin that asks AND allows credentials (cookies) to be sent with cross-origin requests.`);
+      lines.push(`**Why it matters:** This combination lets **any website on the internet** make authenticated requests to your site on behalf of a logged-in user and read the response — a serious data exposure risk.`);
+      lines.push(`**Fix:** Never combine \`Access-Control-Allow-Credentials: true\` with a reflected/wildcard origin. Use an explicit allowlist of trusted origins instead.`);
+      lines.push("");
+      num++;
+    } else if (raw.cors?.wildcardOpen) {
+      lines.push(`### ${num}. Open CORS Policy`);
+      lines.push(`**What this means:** Your site allows requests from any origin (\`Access-Control-Allow-Origin: *\`).`);
+      lines.push(`**Why it matters:** Fine for public APIs with no sensitive data. Risky if this endpoint returns any private or user-specific information.`);
+      lines.push(`**Fix:** If this API serves non-sensitive public data, this is acceptable. Otherwise, restrict to specific trusted origins.`);
+      lines.push("");
+      num++;
+    }
+
+    // Mixed content
+    if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) {
+      lines.push(`### ${num}. Mixed Content Detected`);
+      lines.push(`**What this means:** This HTTPS page loads ${raw.mixedContent.insecureResources.length} resource(s) over plain HTTP.`);
+      lines.push(`**Why it matters:** Insecure resources can be intercepted or modified in transit, undermining the security HTTPS is supposed to provide — browsers often block these resources outright.`);
+      lines.push(`**Fix:** Update these resource URLs to use HTTPS, or use protocol-relative/relative URLs so they always match the page's protocol.`);
+      lines.push("");
+      num++;
+    }
+
+    // Trackers — informational only, not a security deduction
+    if (raw.trackers?.checked && raw.trackers.trackers.length > 0) {
+      lines.push(`### Trackers Detected (informational, not a security issue)`);
+      lines.push(`**Found:** ${raw.trackers.trackers.join(", ")}`);
+      lines.push(`**Why this is here:** These are third-party scripts that can track visitor behavior. Not a security flaw — just worth knowing what's running on your site and disclosing it in your privacy policy if you haven't already.`);
+      lines.push("");
+    }
+  }
+
+  // What's working
+  const working = [];
+  if (raw.tls?.valid) working.push("Valid, trusted SSL certificate");
+  if ((raw.exposedFiles || []).length === 0) working.push("No sensitive files exposed");
+  (raw.headers?.present || []).forEach((h) => working.push(`${h} header configured`));
+  if (raw.emailAuth?.spf) working.push("SPF record configured");
+  if (raw.emailAuth?.dmarc) working.push("DMARC record configured");
+  if (insecureCookies.length === 0 && (raw.cookies?.cookies || []).length > 0) working.push("All cookies properly secured");
+  if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length === 0) working.push("No mixed content found");
+
+  if (working.length > 0) {
+    lines.push("## What You're Doing Right");
+    working.forEach((w) => lines.push(`- ${w}`));
+    lines.push("");
+  }
+
+  lines.push("---");
+  lines.push("*This report was generated by a rule-based scanner — no AI, no external API calls, runs instantly and free.*");
+
+  return lines.join("\n");
+}
+
+export { generateReport, calculateScore, detectPlatform, scoreToGrade };
+</file>
+
+<file path="public/index.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Free website security scanner. Check SSL, security headers, malware, cookies, CORS, and more — instantly, with a plain-English report and copy-paste fixes." />
+<meta property="og:title" content="SiteScanner — Free Website Security Check" />
+<meta property="og:description" content="Scan any website for SSL, header, malware, and privacy issues. Free, instant, no signup." />
+<meta property="og:type" content="website" />
+<title>SiteScanner — Free Security Health Check</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #131a22;
+    --accent: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 0.95rem; }
+  .card {
+    background: var(--panel);
+    border-radius: 14px;
+    padding: 18px;
+    margin-top: 16px;
+    border: 1px solid #1f2937;
+  }
+  input[type=text] {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #0f151c;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  label.confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  button {
+    width: 100%;
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #05130a;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .result-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #1f2937;
+    font-size: 0.92rem;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .status { font-weight: 600; }
+  .ok { color: var(--accent); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  .loading { color: var(--muted); text-align: center; padding: 20px; }
+  .report { white-space: pre-wrap; line-height: 1.5; font-size: 0.95rem; }
+
+  /* Scan pulse animation */
+  .scan-pulse-wrap { display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
+  .scan-pulse { position: relative; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; }
+  .pulse-ring {
+    position: absolute; width: 100%; height: 100%; border-radius: 50%;
+    border: 2px solid var(--accent); opacity: 0;
+    animation: pulse-expand 2s ease-out infinite;
+  }
+  .pulse-ring.delay1 { animation-delay: 0.6s; }
+  .pulse-ring.delay2 { animation-delay: 1.2s; }
+  .pulse-core { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  @keyframes pulse-expand {
+    0% { transform: scale(0.3); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+  .scan-pulse-label { margin-top: 16px; color: var(--muted); font-size: 0.9rem; }
+
+  /* Hero grade ring */
+  .hero-grade-wrap { display: flex; align-items: center; gap: 20px; padding: 24px; }
+  .grade-ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
+  .grade-ring svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+  .grade-ring-bg { fill: none; stroke: #1f2937; stroke-width: 8; }
+  .grade-ring-fg { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.8s ease; }
+  .grade-ring-letter {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; font-weight: 700;
+  }
+  .hero-grade-info { flex: 1; }
+  .hero-grade-score { font-size: 0.9rem; color: var(--muted); }
+  .hero-grade-delta { font-size: 0.85rem; margin-top: 4px; }
+
+  /* Summary line + staggered fade-in */
+  .summary-line { text-align: center; font-size: 0.9rem; color: var(--muted); padding: 0 0 16px; }
+  .summary-critical { color: var(--bad); font-weight: 600; }
+  .summary-warning { color: var(--warn); font-weight: 600; }
+  .summary-passed { color: var(--accent); font-weight: 600; }
+  .fade-in { opacity: 0; animation: fadeInUp 0.4s ease forwards; }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 SiteScanner</h1>
+  <p class="sub">Free passive security health check for your website. No exploits, no attacks — just checks.</p>
+
+  <!-- Quick Check: one field, one clear answer, no technical detail -->
+  <div class="card">
+    <strong style="display:block; margin-bottom:10px;">Quick Check — is this site safe?</strong>
+    <input type="text" id="quickInput" placeholder="yourdomain.com" />
+    <label class="confirm">
+      <input type="checkbox" id="quickConfirm" />
+      I own this domain or have explicit permission to check it.
+    </label>
+    <button id="quickBtn">Check Now</button>
+    <div id="quickResult"></div>
+  </div>
+
+  <div class="card">
+    <strong style="display:block; margin-bottom:10px;">Full Technical Scan</strong>
+    <input type="text" id="urlInput" placeholder="yourdomain.com" />
+    <label class="confirm">
+      <input type="checkbox" id="confirmOwn" />
+      I own this domain or have explicit permission to scan it.
+    </label>
+    <label class="confirm">
+      <input type="checkbox" id="listPublicly" />
+      List this scan on the public "Recently scanned" feed
+    </label>
+    <button id="scanBtn">Scan Now</button>
+  </div>
+
+  <div id="recentFeed"></div>
+
+  <div id="results"></div>
+</div>
+
+<script src="/render.js"></script>
+<script>
+// Public "Recently scanned" feed — opt-in only, shown on homepage
+async function loadRecentFeed() {
+  const feedEl = document.getElementById('recentFeed');
+  try {
+    const res = await fetch('/api/recent');
+    const feed = await res.json();
+    if (!feed.length) { feedEl.innerHTML = ''; return; }
+
+    const gradeColor = g => ({ A: '#4ade80', B: '#4ade80', C: '#fbbf24', D: '#fbbf24', F: '#f87171' }[g] || 'var(--muted)');
+    let html = `<div class="card"><strong>Recently Scanned (public, opt-in)</strong>`;
+    feed.forEach(item => {
+      html += `<div class="result-item"><span><a href="/report/${item.hostname}" style="color:var(--text);">${item.hostname}</a></span><span class="status" style="color:${gradeColor(item.grade)};">${item.grade} (${item.score})</span></div>`;
+    });
+    html += `</div>`;
+    feedEl.innerHTML = html;
+  } catch {
+    feedEl.innerHTML = '';
+  }
+}
+loadRecentFeed();
+
+// Quick Check logic — simple safe/unsafe answer, no technical detail
+const quickBtn = document.getElementById('quickBtn');
+const quickResultEl = document.getElementById('quickResult');
+
+quickBtn.addEventListener('click', async () => {
+  const url = document.getElementById('quickInput').value.trim();
+  const confirmed = document.getElementById('quickConfirm').checked;
+
+  if (!url) return alert('Enter a domain first.');
+  if (!confirmed) return alert('Please confirm you have permission to check this domain.');
+
+  quickBtn.disabled = true;
+  quickResultEl.innerHTML = '<div class="loading">Checking…</div>';
+
+  try {
+    const res = await fetch('/api/quickcheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, ownershipConfirmed: confirmed }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      quickResultEl.innerHTML = `<div style="color:var(--bad); margin-top:12px;">${data.error}</div>`;
+      quickBtn.disabled = false;
+      return;
+    }
+
+    const color = data.safe ? 'var(--accent)' : 'var(--bad)';
+    const label = data.safe ? '✅ Safe' : '⚠️ Unsafe';
+    let html = `<div style="margin-top:16px; padding:16px; border-radius:10px; background:${data.safe ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)'}; border:1px solid ${color};">`;
+    html += `<div style="font-size:1.4rem; font-weight:700; color:${color};">${label}</div>`;
+    if (!data.safe && data.reasons.length > 0) {
+      html += `<ul style="margin:8px 0 0 18px; color:var(--muted); font-size:0.9rem;">`;
+      data.reasons.forEach(r => html += `<li>${r}</li>`);
+      html += `</ul>`;
+    }
+    html += `<a href="#" id="wantFullReport" style="display:inline-block; margin-top:12px; color:var(--accent); font-size:0.9rem;">Want the full technical report? →</a>`;
+    html += `</div>`;
+    quickResultEl.innerHTML = html;
+
+    document.getElementById('wantFullReport').addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('urlInput').value = url;
+      document.getElementById('confirmOwn').checked = true;
+      document.getElementById('urlInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  } catch (err) {
+    quickResultEl.innerHTML = `<div style="color:var(--bad); margin-top:12px;">Check failed: ${err.message}</div>`;
+  }
+  quickBtn.disabled = false;
+});
+
+const btn = document.getElementById('scanBtn');
+const resultsEl = document.getElementById('results');
+
+btn.addEventListener('click', () => {
+  const url = document.getElementById('urlInput').value.trim();
+  const confirmed = document.getElementById('confirmOwn').checked;
+  const listPublicly = document.getElementById('listPublicly').checked;
+
+  if (!url) return alert('Enter a domain first.');
+  if (!confirmed) return alert('Please confirm you have permission to scan this domain.');
+
+  btn.disabled = true;
+  resultsEl.innerHTML = `
+    <div class="card scan-pulse-wrap">
+      <div class="scan-pulse">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring delay1"></div>
+        <div class="pulse-ring delay2"></div>
+        <div class="pulse-core"></div>
+      </div>
+      <div class="scan-pulse-label" id="scanStatusLabel">Starting scan…</div>
+      <div id="scanStatusList" style="margin-top:14px; font-size:0.85rem; color:var(--muted); text-align:left;"></div>
+    </div>`;
+
+  const statusLabel = document.getElementById('scanStatusLabel');
+  const statusList = document.getElementById('scanStatusList');
+  const doneChecks = [];
+
+  const params = new URLSearchParams({ url, confirmed: 'true', listPublicly: String(listPublicly) });
+  const source = new EventSource('/api/scan-stream?' + params.toString());
+
+  source.addEventListener('progress', (e) => {
+    const { label, status } = JSON.parse(e.data);
+    doneChecks.push({ label, status });
+    statusLabel.textContent = `Scanning ${url}… (${doneChecks.length}/9)`;
+    statusList.innerHTML = doneChecks
+      .map(c => `<div>${c.status === 'done' ? '✓' : '⚠'} ${c.label}</div>`)
+      .join('');
+  });
+
+  source.addEventListener('done', (e) => {
+    const data = JSON.parse(e.data);
+    source.close();
+    renderResults(data);
+    applyStaggeredFadeIn(resultsEl);
+    resultsEl.insertAdjacentHTML('afterbegin', `<div class="card" style="text-align:center;">🔗 <a href="/report/${data.hostname}" target="_blank" style="color:var(--accent);">Shareable link to this report →</a></div>`);
+    loadRecentFeed();
+    btn.disabled = false;
+  });
+
+  source.addEventListener('error', () => {
+    if (source.readyState === EventSource.CLOSED) return; // already closed cleanly after 'done', ignore
+    source.close();
+    resultsEl.innerHTML = `<div class="card bad">Scan failed or connection lost. Please try again.</div>`;
+    btn.disabled = false;
+  });
+});
+</script>
+</body>
+</html>
+</file>
+
+<file path="server.js">
+// SiteScanner - Passive Security Health Checker
+// Only performs read-only, non-intrusive checks (no exploitation, no brute force, no port scanning of arbitrary hosts).
+// Users must confirm ownership/permission before scanning (enforced client-side + noted in ToS).
+
+import "dotenv/config";
+import express from "express";
+import fetch from "node-fetch";
+import dns from "dns/promises";
+import { Resolver } from "dns/promises";
+import tls from "tls";
+import { URL } from "url";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { generateReport } from "./report-generator.js";
+import { calculateScore, scoreToGrade } from "./report-generator.js";
+import { recordScan } from "./history-store.js";
+import { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
+import rateLimit from "express-rate-limit";
+
+const app = express();
+app.use(express.json());
+app.use(express.static("public"));
+
+// Limits each IP to 10 scans per 15 minutes. Protects the server from being
+// hammered and keeps it usable for everyone since this is a free public tool.
+const scanLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many scans from this IP. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ---------- Helper checks ----------
+
+async function checkMalwareBlocklist(targetUrl) {
+  const apiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY;
+  if (!apiKey) {
+    return { checked: false, reason: "no_api_key" };
+  }
+
+  const body = {
+    client: { clientId: "sitescanner", clientVersion: "1.0.0" },
+    threatInfo: {
+      threatTypes: ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+      platformTypes: ["ANY_PLATFORM"],
+      threatEntryTypes: ["URL"],
+      threatEntries: [{ url: targetUrl }],
+    },
+  };
+
+  try {
+    const res = await fetch(
+      `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+    const data = await res.json();
+
+    if (data.error) {
+      console.error("Safe Browsing API error:", data.error.message);
+      return { checked: false, reason: "api_error" };
+    }
+
+    const matches = data.matches || [];
+    return {
+      checked: true,
+      flagged: matches.length > 0,
+      threatTypes: matches.map((m) => m.threatType),
+    };
+  } catch (err) {
+    console.error("Safe Browsing check failed:", err.message);
+    return { checked: false, reason: "network_error" };
+  }
+}
+
+async function checkCookieSecurity(targetUrl) {
+  const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+  let rawCookies = [];
+  if (typeof res.headers.raw === "function") {
+    rawCookies = res.headers.raw()["set-cookie"] || [];
+  } else {
+    const single = res.headers.get("set-cookie");
+    if (single) rawCookies = [single];
+  }
+
+  if (rawCookies.length === 0) {
+    return { hasCookies: false, cookies: [] };
+  }
+
+  const cookies = rawCookies.map((cookieStr) => {
+    const lower = cookieStr.toLowerCase();
+    const nameMatch = cookieStr.match(/^([^=]+)=/);
+    return {
+      name: nameMatch ? nameMatch[1].trim() : "unknown",
+      secure: lower.includes("secure"),
+      httpOnly: lower.includes("httponly"),
+      sameSite: lower.includes("samesite=strict")
+        ? "Strict"
+        : lower.includes("samesite=lax")
+        ? "Lax"
+        : lower.includes("samesite=none")
+        ? "None"
+        : null,
+    };
+  });
+
+  return { hasCookies: true, cookies };
+}
+
+async function checkCORS(targetUrl) {
+  // Send a request with an arbitrary, clearly-foreign Origin header and see
+  // what the server echoes back — the same thing a browser does automatically
+  // on any cross-origin request. Fully passive, no exploitation.
+  const res = await fetch(targetUrl, {
+    method: "GET",
+    headers: { Origin: "https://sitescanner-cors-test.example.com" },
+  });
+
+  const allowOrigin = res.headers.get("access-control-allow-origin");
+  const allowCredentials = res.headers.get("access-control-allow-credentials");
+
+  const reflectsAnyOrigin = allowOrigin === "https://sitescanner-cors-test.example.com";
+  const wildcardOpen = allowOrigin === "*";
+  const dangerousCombo = reflectsAnyOrigin && allowCredentials === "true";
+
+  return { allowOrigin: allowOrigin || null, wildcardOpen, reflectsAnyOrigin, dangerousCombo };
+}
+
+const TRACKER_SIGNATURES = [
+  { name: "Google Analytics", pattern: /google-analytics\.com|googletagmanager\.com\/gtag/i },
+  { name: "Google Tag Manager", pattern: /googletagmanager\.com\/gtm/i },
+  { name: "Facebook Pixel", pattern: /connect\.facebook\.net.*fbevents/i },
+  { name: "Hotjar (session recording)", pattern: /static\.hotjar\.com/i },
+  { name: "Microsoft Clarity (session recording)", pattern: /clarity\.ms/i },
+  { name: "FullStory (session recording)", pattern: /fullstory\.com/i },
+  { name: "Mixpanel", pattern: /cdn\.mxpnl\.com/i },
+  { name: "Segment", pattern: /cdn\.segment\.com/i },
+  { name: "DoubleClick / Google Ads", pattern: /doubleclick\.net/i },
+  { name: "Amplitude", pattern: /cdn\.amplitude\.com/i },
+];
+
+async function checkTrackers(targetUrl) {
+  try {
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+    const html = await res.text();
+
+    const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
+    return { checked: true, trackers: found };
+  } catch {
+    return { checked: false, trackers: [] };
+  }
+}
+
+async function checkMixedContent(targetUrl) {
+  try {
+    const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
+    const html = await res.text();
+    const isHttps = targetUrl.startsWith("https://");
+    if (!isHttps) return { checked: false, insecureResources: [] };
+
+    const matches = [...html.matchAll(/(?:src|href)=["']http:\/\/([^"']+)["']/gi)].map((m) => m[0]);
+    const unique = [...new Set(matches)].slice(0, 10);
+
+    return { checked: true, insecureResources: unique };
+  } catch {
+    return { checked: false, insecureResources: [] };
+  }
+}
+
+async function checkSecurityHeaders(targetUrl) {
+  const requiredHeaders = [
+    "content-security-policy",
+    "strict-transport-security",
+    "x-frame-options",
+    "x-content-type-options",
+    "referrer-policy",
+    "permissions-policy",
+  ];
+
+  // Follow redirects manually so we always inspect the FINAL response's headers,
+  // not an intermediate redirect hop that may not carry security headers itself.
+  let currentUrl = targetUrl;
+  let res;
+  for (let i = 0; i < 5; i++) {
+    res = await fetch(currentUrl, { method: "GET", redirect: "manual" });
+    if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
+      currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
+      continue;
+    }
+    break;
+  }
+
+  const headers = Object.fromEntries(res.headers.entries());
+
+  const missing = requiredHeaders.filter((h) => !headers[h]);
+  const present = requiredHeaders.filter((h) => headers[h]);
+
+  return {
+    missing,
+    present,
+    statusCode: res.status,
+    finalUrl: currentUrl,
+    // Include raw server-identifying headers too — platform detection
+    // (Vercel/WordPress/Nginx/etc.) needs these, and they were previously
+    // dropped here, which silently broke platform-specific fix code.
+    server: headers.server || null,
+    xVercelId: headers["x-vercel-id"] || null,
+    xPoweredBy: headers["x-powered-by"] || null,
+  };
+}
+
+async function checkTLS(hostname) {
+  return new Promise((resolve) => {
+    const socket = tls.connect(
+      { host: hostname, port: 443, servername: hostname, timeout: 5000 },
+      () => {
+        // getPeerCertificate() is the correct API on a TLSSocket; getCertificate()
+        // returns the LOCAL (client) cert, which is empty for outbound connections
+        // and was causing valid_to to be undefined -> "null days".
+        const cert = socket.getPeerCertificate();
+        const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
+        const daysLeft = validTo
+          ? Math.round((validTo.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+          : null;
+        resolve({
+          valid: !!(cert && cert.valid_to),
+          issuer: cert?.issuer?.O || cert?.issuer?.CN || "Unknown",
+          validTo: cert?.valid_to || null,
+          daysUntilExpiry: daysLeft,
+          protocol: socket.getProtocol ? socket.getProtocol() : null,
+        });
+        socket.end();
+      }
+    );
+    socket.on("error", (err) => resolve({ valid: false, error: err.message }));
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve({ valid: false, error: "Connection timed out" });
+    });
+  });
+}
+
+async function checkExposedFiles(baseUrl) {
+  const sensitivePaths = [
+    "/.env",
+    "/.git/config",
+    "/wp-config.php.bak",
+    "/config.php.bak",
+    "/.DS_Store",
+    "/backup.zip",
+  ];
+
+  // Many hosts (Vercel, Netlify, etc.) return 200 with a custom "not found" page
+  // instead of a real 404 status. To avoid false positives, first fetch a path
+  // that definitely doesn't exist and use ITS response as the baseline "not found"
+  // signature (status + rough content length). A sensitive path is only flagged
+  // as exposed if it differs meaningfully from that baseline.
+  const probePath = `/__sitescanner_probe_${Date.now()}`;
+  let baseline = { status: 404, length: 0 };
+  try {
+    const probeRes = await fetch(new URL(probePath, baseUrl).toString(), {
+      method: "GET",
+      redirect: "manual",
+    });
+    const probeText = await probeRes.text().catch(() => "");
+    baseline = { status: probeRes.status, length: probeText.length };
+  } catch {
+    // If the probe itself fails, fall back to assuming 404 = not found
+  }
+
+  const results = [];
+  for (const path of sensitivePaths) {
+    try {
+      const res = await fetch(new URL(path, baseUrl).toString(), {
+        method: "GET",
+        redirect: "manual",
+      });
+      const text = await res.text().catch(() => "");
+
+      const sameStatusAsBaseline = res.status === baseline.status;
+      const similarLengthToBaseline =
+        baseline.length > 0 && Math.abs(text.length - baseline.length) < 50;
+
+      // Only flag as exposed if it returns success AND doesn't look like the
+      // same generic "not found" page the baseline probe got back.
+      const looksReal =
+        res.status === 200 && !(sameStatusAsBaseline && similarLengthToBaseline);
+
+      results.push({ path, exposed: looksReal, statusCode: res.status });
+    } catch {
+      results.push({ path, exposed: false, statusCode: null });
+    }
+  }
+  return results.filter((r) => r.exposed);
+}
+
+async function checkEmailSpoofingProtection(hostname) {
+  const result = { spf: false, dmarc: false };
+
+  // Use an explicit, reliable public resolver (Google's 8.8.8.8) instead of
+  // whatever DNS server the local machine happens to be configured with.
+  // Some ISP/router DNS setups silently fail or truncate TXT record lookups,
+  // which was causing false "Missing" results for domains that actually have
+  // valid SPF/DMARC records (confirmed bug found testing against google.com).
+  const resolver = new Resolver();
+  resolver.setServers(["8.8.8.8", "1.1.1.1"]);
+
+  try {
+    const txt = await resolver.resolveTxt(hostname);
+    const flat = txt.map((r) => r.join(""));
+    result.spf = flat.some((r) => r.startsWith("v=spf1"));
+  } catch (err) {
+    console.error(`SPF lookup failed for ${hostname}:`, err.message);
+  }
+
+  try {
+    const dmarcTxt = await resolver.resolveTxt(`_dmarc.${hostname}`);
+    const flat = dmarcTxt.map((r) => r.join(""));
+    result.dmarc = flat.some((r) => r.startsWith("v=DMARC1"));
+  } catch (err) {
+    console.error(`DMARC lookup failed for ${hostname}:`, err.message);
+  }
+
+  return result;
+}
+
+// ---------- Main scan endpoint ----------
+
+// ---------- Quick Check: simple Safe/Unsafe answer, no technical report ----------
+// Same pattern as Google's own Safe Browsing Site Status Tool: lead with one
+// clear answer, let people drill into the full technical scan separately.
+
+app.post("/api/quickcheck", scanLimiter, async (req, res) => {
+  const { url, ownershipConfirmed } = req.body;
+
+  if (!ownershipConfirmed) {
+    return res.status(400).json({ error: "You must confirm you own or have permission to check this domain." });
+  }
+  if (!url) {
+    return res.status(400).json({ error: "Missing url" });
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+  } catch {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
+
+  const hostname = parsed.hostname;
+
+  try {
+    const [malware, tlsInfo] = await Promise.allSettled([
+      checkMalwareBlocklist(parsed.toString()),
+      checkTLS(hostname),
+    ]);
+
+    const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false };
+    const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false };
+
+    const reasons = [];
+    let safe = true;
+
+    if (malwareResult.checked && malwareResult.flagged) {
+      safe = false;
+      reasons.push(`Flagged by Google Safe Browsing for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
+    }
+    if (!tlsResult.valid) {
+      safe = false;
+      reasons.push("No valid SSL certificate — connection is not secure");
+    }
+
+    res.json({
+      hostname,
+      safe,
+      reasons,
+      malwareChecked: malwareResult.checked,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Shareable report page + data ----------
+
+app.get("/report/:hostname", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "report.html"));
+});
+
+app.get("/api/report/:hostname", async (req, res) => {
+  const data = await getLatestScan(req.params.hostname);
+  if (!data) {
+    return res.status(404).json({ error: "No scan found for this domain yet. Run a scan first." });
+  }
+  res.json(data);
+});
+
+app.get("/api/recent", async (req, res) => {
+  const feed = await getPublicFeed();
+  res.json(feed);
+});
+
+// ---------- Progressive scan via Server-Sent Events ----------
+// Runs the same checks as /api/scan, but streams a "progress" event the
+// instant each individual check finishes, instead of making the browser
+// wait for all 9 to complete before showing anything. Final event carries
+// the complete result, identical in shape to the POST /api/scan response,
+// so the same renderResults() function works for both.
+
+app.get("/api/scan-stream", scanLimiter, async (req, res) => {
+  const { url, confirmed, listPublicly } = req.query;
+
+  if (confirmed !== "true") {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "You must confirm you own or have permission to scan this domain." }));
+  }
+  if (!url) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "Missing url" }));
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "Invalid URL" }));
+  }
+
+  const hostname = parsed.hostname;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Each entry: [key in raw object, human label shown while it runs, promise]
+  const checkList = [
+    ["headers", "Checking security headers", checkSecurityHeaders(parsed.toString())],
+    ["tls", "Checking SSL certificate", checkTLS(hostname)],
+    ["exposedFiles", "Checking for exposed files", checkExposedFiles(parsed.toString())],
+    ["emailAuth", "Checking email spoofing protection", checkEmailSpoofingProtection(hostname)],
+    ["cookies", "Checking cookie security", checkCookieSecurity(parsed.toString())],
+    ["cors", "Checking CORS policy", checkCORS(parsed.toString())],
+    ["mixedContent", "Checking for mixed content", checkMixedContent(parsed.toString())],
+    ["malware", "Checking malware/phishing status", checkMalwareBlocklist(parsed.toString())],
+    ["trackers", "Checking for tracking scripts", checkTrackers(parsed.toString())],
+  ];
+
+  const raw = {};
+  const defaults = {
+    headers: { error: "failed" },
+    tls: { error: "failed" },
+    exposedFiles: [],
+    emailAuth: { error: "failed" },
+    cookies: { hasCookies: false, cookies: [] },
+    cors: { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
+    mixedContent: { checked: false, insecureResources: [] },
+    malware: { checked: false, reason: "error" },
+    trackers: { checked: false, trackers: [] },
+  };
+
+  const settledPromises = checkList.map(([key, label, promise]) =>
+    promise
+      .then((value) => {
+        raw[key] = value;
+        send("progress", { key, label, status: "done" });
+      })
+      .catch((err) => {
+        raw[key] = defaults[key];
+        send("progress", { key, label, status: "error", message: err.message });
+      })
+  );
+
+  await Promise.allSettled(settledPromises);
+
+  try {
+    const { score } = calculateScore(raw);
+    const grade = scoreToGrade(score);
+    const { previous, history } = await recordScan(hostname, score, grade);
+
+    const scanResult = {
+      hostname,
+      scannedAt: new Date().toISOString(),
+      raw,
+      score,
+      grade,
+      previousScan: previous,
+      history,
+    };
+
+    await saveLatestScan(hostname, scanResult);
+    if (listPublicly === "true") {
+      await addToPublicFeed(hostname, score, grade);
+    }
+
+    send("done", scanResult);
+  } catch (err) {
+    send("error", { error: err.message });
+  }
+
+  res.end();
+});
+
+app.post("/api/scan", scanLimiter, async (req, res) => {
+  const { url, ownershipConfirmed } = req.body;
+
+  if (!ownershipConfirmed) {
+    return res.status(400).json({ error: "You must confirm you own or have permission to scan this domain." });
+  }
+  if (!url) {
+    return res.status(400).json({ error: "Missing url" });
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+  } catch {
+    return res.status(400).json({ error: "Invalid URL" });
+  }
+
+  const hostname = parsed.hostname;
+
+  try {
+    const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
+      checkSecurityHeaders(parsed.toString()),
+      checkTLS(hostname),
+      checkExposedFiles(parsed.toString()),
+      checkEmailSpoofingProtection(hostname),
+      checkCookieSecurity(parsed.toString()),
+      checkCORS(parsed.toString()),
+      checkMixedContent(parsed.toString()),
+      checkMalwareBlocklist(parsed.toString()),
+      checkTrackers(parsed.toString()),
+    ]);
+
+    const raw = {
+      headers: headers.status === "fulfilled" ? headers.value : { error: headers.reason?.message },
+      tls: tlsInfo.status === "fulfilled" ? tlsInfo.value : { error: tlsInfo.reason?.message },
+      exposedFiles: exposedFiles.status === "fulfilled" ? exposedFiles.value : [],
+      emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: emailAuth.reason?.message },
+      cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
+      cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
+      mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
+      malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
+      trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
+    };
+
+    // Calculate score now (not just when the plain-English report is
+    // requested) so every scan — even if the user never clicks "Get Report"
+    // — contributes to that domain's progress history.
+    const { score } = calculateScore(raw);
+    const grade = scoreToGrade(score);
+    const { previous, history } = await recordScan(hostname, score, grade);
+
+    const scanResult = {
+      hostname,
+      scannedAt: new Date().toISOString(),
+      raw,
+      score,
+      grade,
+      previousScan: previous,
+      history,
+    };
+
+    // Save as the latest scan for this hostname so /report/:hostname can
+    // show it later — same public-visibility model as SSL Labs/Mozilla
+    // Observatory, where scanning a public site's security posture is
+    // treated as public information, not a private user record.
+    await saveLatestScan(hostname, scanResult);
+
+    // Public activity feed is opt-in only (separate from the always-available
+    // permalink above) since a feed surfaces scans proactively to everyone,
+    // which is a bigger visibility step than a link only found if shared.
+    if (req.body.listPublicly) {
+      await addToPublicFeed(hostname, score, grade);
+    }
+
+    res.json(scanResult);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Plain-English report: rule-based, always free, no API needed ----------
+
+app.post("/api/explain", async (req, res) => {
+  const { raw, hostname } = req.body;
+
+  if (!raw || !hostname) {
+    return res.status(400).json({ error: "Missing scan data." });
+  }
+
+  try {
+    const report = generateReport(raw, hostname);
+    res.json({ report, engine: "rule-based" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`SiteScanner running on http://localhost:${PORT}`));
+</file>
+
+</files>

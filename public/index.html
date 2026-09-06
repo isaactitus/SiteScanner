@@ -130,7 +130,7 @@
   <h1>🔍 SiteScanner</h1>
   <p class="sub">Free passive security health check for your website. No exploits, no attacks — just checks.</p>
 
-  <!-- Quick Check: one field, one clear answer, no technical detail -->
+  <!-- Quick Check -->
   <div class="card">
     <strong style="display:block; margin-bottom:10px;">Quick Check — is this site safe?</strong>
     <input type="text" id="quickInput" placeholder="yourdomain.com" />
@@ -142,6 +142,7 @@
     <div id="quickResult"></div>
   </div>
 
+  <!-- Full Technical Scan -->
   <div class="card">
     <strong style="display:block; margin-bottom:10px;">Full Technical Scan</strong>
     <input type="text" id="urlInput" placeholder="yourdomain.com" />
@@ -157,13 +158,12 @@
   </div>
 
   <div id="recentFeed"></div>
-
   <div id="results"></div>
 </div>
 
 <script src="/render.js"></script>
 <script>
-// Public "Recently scanned" feed — opt-in only, shown on homepage
+// Public "Recently scanned" feed
 async function loadRecentFeed() {
   const feedEl = document.getElementById('recentFeed');
   try {
@@ -184,7 +184,7 @@ async function loadRecentFeed() {
 }
 loadRecentFeed();
 
-// Quick Check logic — simple safe/unsafe answer, no technical detail
+// Quick Check Logic
 const quickBtn = document.getElementById('quickBtn');
 const quickResultEl = document.getElementById('quickResult');
 
@@ -212,15 +212,31 @@ quickBtn.addEventListener('click', async () => {
       return;
     }
 
-    const color = data.safe ? 'var(--accent)' : 'var(--bad)';
-    const label = data.safe ? '✅ Safe' : '⚠️ Unsafe';
-    let html = `<div style="margin-top:16px; padding:16px; border-radius:10px; background:${data.safe ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)'}; border:1px solid ${color};">`;
-    html += `<div style="font-size:1.4rem; font-weight:700; color:${color};">${label}</div>`;
-    if (!data.safe && data.reasons.length > 0) {
+    // Default to Safe
+    let color = 'var(--accent)';
+    let bg = 'rgba(74,222,128,0.1)';
+    let label = '✅ Safe & Clean';
+
+    // Apply exact wording requested
+    if (data.status === 'critical') {
+      color = 'var(--bad)';
+      bg = 'rgba(248,113,113,0.1)';
+      label = '🚨 Unsafe (High Risk)';
+    } else if (data.status === 'warning') {
+      color = 'var(--warn)';
+      bg = 'rgba(251,191,36,0.1)';
+      label = '⚠️ Safe to browse, but needs Developer attention';
+    }
+
+    let html = `<div style="margin-top:16px; padding:16px; border-radius:10px; background:${bg}; border:1px solid ${color};">`;
+    html += `<div style="font-size:1.1rem; font-weight:700; color:${color};">${label}</div>`;
+    
+    if (data.reasons && data.reasons.length > 0) {
       html += `<ul style="margin:8px 0 0 18px; color:var(--muted); font-size:0.9rem;">`;
       data.reasons.forEach(r => html += `<li>${r}</li>`);
       html += `</ul>`;
     }
+    
     html += `<a href="#" id="wantFullReport" style="display:inline-block; margin-top:12px; color:var(--accent); font-size:0.9rem;">Want the full technical report? →</a>`;
     html += `</div>`;
     quickResultEl.innerHTML = html;
@@ -237,6 +253,7 @@ quickBtn.addEventListener('click', async () => {
   quickBtn.disabled = false;
 });
 
+// Full Scan Logic
 const btn = document.getElementById('scanBtn');
 const resultsEl = document.getElementById('results');
 
@@ -287,10 +304,17 @@ btn.addEventListener('click', () => {
     btn.disabled = false;
   });
 
-  source.addEventListener('error', () => {
-    if (source.readyState === EventSource.CLOSED) return; // already closed cleanly after 'done', ignore
+  source.addEventListener('error_msg', (e) => {
+    const { error } = JSON.parse(e.data);
     source.close();
-    resultsEl.innerHTML = `<div class="card bad">Scan failed or connection lost. Please try again.</div>`;
+    resultsEl.innerHTML = `<div class="card bad" style="color:var(--bad);">${error}</div>`;
+    btn.disabled = false;
+  });
+
+  source.addEventListener('error', () => {
+    if (source.readyState === EventSource.CLOSED) return;
+    source.close();
+    resultsEl.innerHTML = `<div class="card bad" style="color:var(--bad);">Scan failed or address is restricted. Please check the domain and try again.</div>`;
     btn.disabled = false;
   });
 });

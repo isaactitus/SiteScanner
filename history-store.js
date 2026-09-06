@@ -6,11 +6,6 @@
 //
 // Uses a plain JSON file on disk — no database setup required. This is
 // intentionally simple: fine for a free single-instance tool at this scale.
-// Known limitation, stated honestly: on hosts with an ephemeral filesystem
-// (some free tiers wipe disk on redeploy, not on restart), history can be
-// lost on redeploy. Worth upgrading to a real database (e.g. SQLite file,
-// or a hosted Postgres) if/when this matters — this file is written so that
-// swap is a single-module change, not a rewrite.
 
 import fs from "fs/promises";
 import path from "path";
@@ -65,8 +60,6 @@ async function getHistory(hostname) {
   return all[hostname] || [];
 }
 
-export { recordScan, getHistory };
-
 // ---------- Latest full scan (for shareable /report/:hostname links) ----------
 
 const LATEST_FILE = path.join(DATA_DIR, "latest-scans.json");
@@ -100,10 +93,10 @@ async function getLatestScan(hostname) {
   }
 }
 
-// ---------- Public activity feed (opt-in only) ----------
+// ---------- Public activity feed (opt-in only, deduplicated) ----------
 
 const FEED_FILE = path.join(DATA_DIR, "public-feed.json");
-const MAX_FEED_ITEMS = 15;
+const MAX_FEED_ITEMS = 10;
 
 async function ensureFeedFile() {
   try {
@@ -120,18 +113,42 @@ async function addToPublicFeed(hostname, score, grade) {
   try {
     feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
   } catch {}
+
+  // Remove existing entry for this hostname so it doesn't duplicate
+  feed = feed.filter((item) => item.hostname !== hostname);
+
+  // Prepend the latest scan
   feed.unshift({ hostname, score, grade, timestamp: new Date().toISOString() });
   feed = feed.slice(0, MAX_FEED_ITEMS);
+
   await fs.writeFile(FEED_FILE, JSON.stringify(feed, null, 2), "utf-8");
 }
 
 async function getPublicFeed() {
   await ensureFeedFile();
   try {
-    return JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+    const feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+    
+    // Deduplicate on read as well in case old duplicates exist on disk
+    const seen = new Set();
+    const deduplicated = [];
+    for (const item of feed) {
+      if (!seen.has(item.hostname)) {
+        seen.add(item.hostname);
+        deduplicated.push(item);
+      }
+    }
+    return deduplicated.slice(0, MAX_FEED_ITEMS);
   } catch {
     return [];
   }
 }
 
-export { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed };
+export {
+  recordScan,
+  getHistory,
+  saveLatestScan,
+  getLatestScan,
+  addToPublicFeed,
+  getPublicFeed,
+};

@@ -3,7 +3,6 @@ function renderResults(data, targetId = 'results') {
   const { raw, hostname, score, grade, previousScan } = data;
   let html = `<div class="card"><strong>Results for ${hostname}</strong></div>`;
 
-  // Hero grade ring
   const gradeHex = score >= 75 ? '#4ade80' : score >= 40 ? '#fbbf24' : '#f87171';
   const circumference = 2 * Math.PI * 40;
   const offset = circumference - (score / 100) * circumference;
@@ -32,14 +31,21 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div></div>`;
 
-  // At-a-glance summary counts
+  // Summary tallies
   let critical = 0, warning = 0, passed = 0;
   if (!raw.tls?.valid) critical++; else passed++;
   (raw.headers?.missing || []).forEach(() => critical++);
   (raw.headers?.present || []).forEach(() => passed++);
   if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
-  if (!raw.emailAuth?.spf) warning++; else passed++;
-  if (!raw.emailAuth?.dmarc) warning++; else passed++;
+
+  const isSharedHost = raw.emailAuth?.isSharedHost;
+  if (!isSharedHost) {
+    if (!raw.emailAuth?.spf) warning++; else passed++;
+    if (!raw.emailAuth?.dmarc) warning++; else passed++;
+  } else {
+    passed++;
+  }
+
   if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
   if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) warning++; else if (raw.mixedContent?.checked) passed++;
   if (raw.malware?.checked && raw.malware.flagged) critical++; else if (raw.malware?.checked) passed++;
@@ -83,10 +89,14 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Email spoofing
+  // Email Spoofing
   html += `<div class="card fade-in"><strong>✉️ Email Spoofing Protection</strong>`;
-  html += `<div class="result-item"><span>SPF record</span><span class="status ${raw.emailAuth.spf ? 'ok' : 'warn'}">${raw.emailAuth.spf ? 'Found' : 'Missing'}</span></div>`;
-  html += `<div class="result-item"><span>DMARC record</span><span class="status ${raw.emailAuth.dmarc ? 'ok' : 'warn'}">${raw.emailAuth.dmarc ? 'Found' : 'Missing'}</span></div>`;
+  if (isSharedHost) {
+    html += `<div class="result-item"><span>SPF / DMARC</span><span class="status ok">N/A (Shared Subdomain)</span></div>`;
+  } else {
+    html += `<div class="result-item"><span>SPF record</span><span class="status ${raw.emailAuth.spf ? 'ok' : 'warn'}">${raw.emailAuth.spf ? 'Found' : 'Missing'}</span></div>`;
+    html += `<div class="result-item"><span>DMARC record</span><span class="status ${raw.emailAuth.dmarc ? 'ok' : 'warn'}">${raw.emailAuth.dmarc ? 'Found' : 'Missing'}</span></div>`;
+  }
   html += `</div>`;
 
   // Cookies
@@ -110,7 +120,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Mixed content
+  // Mixed Content
   if (raw.mixedContent?.checked) {
     html += `<div class="card fade-in"><strong>🔓 Mixed Content</strong>`;
     if (raw.mixedContent.insecureResources.length === 0) {
@@ -121,7 +131,7 @@ function renderResults(data, targetId = 'results') {
     html += `</div>`;
   }
 
-  // Malware/blocklist
+  // Malware
   if (raw.malware?.checked) {
     html += `<div class="card fade-in"><strong>🚨 Malware / Phishing Check</strong>`;
     if (raw.malware.flagged) {
@@ -148,19 +158,73 @@ function renderResults(data, targetId = 'results') {
   html += `<button id="explainBtn">Get Plain-English Report</button>`;
   resultsEl.innerHTML = html;
 
-  document.getElementById('explainBtn').addEventListener('click', async () => {
-    resultsEl.insertAdjacentHTML('beforeend', '<div class="card loading">Generating report…</div>');
-    const res = await fetch('/api/explain', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw, hostname }),
-    });
-    const data = await res.json();
-    document.querySelector('.loading').outerHTML = `<div class="card report">${data.report || data.error}</div>`;
+  // Lightweight markdown formatter for the AI output
+  function formatMarkdown(text) {
+    if (!text) return "";
+    return text
+      .replace(/### (.*)/g, '<h4 style="margin-top:16px; margin-bottom:8px;">$1</h4>')
+      .replace(/## (.*)/g, '<h3 style="margin-top:20px; margin-bottom:10px; border-bottom:1px solid #334155; padding-bottom:4px;">$1</h3>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text);">$1</strong>')
+      .replace(/`(.*?)`/g, '<code style="background:#1f2937; color:#a78bfa; padding:2px 4px; border-radius:4px; font-size:0.9em;">$1</code>')
+      .replace(/```([\s\S]*?)```/g, '<pre style="background:#0f151c; padding:12px; border-radius:8px; overflow-x:auto; border:1px solid #334155;"><code style="color:#e5e7eb;">$1</code></pre>')
+      .replace(/\n/g, '<br/>');
+  }
+
+  const explainBtn = document.getElementById('explainBtn');
+  explainBtn.addEventListener('click', async () => {
+    explainBtn.disabled = true;
+    resultsEl.insertAdjacentHTML('beforeend', '<div class="card loading" id="reportLoading">Analyzing architecture & generating reports…</div>');
+    
+    try {
+      const res = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw, hostname }),
+      });
+      const data = await res.json();
+      
+      if (data.error) throw new Error(data.error);
+
+      // 1. Free Report Card
+      let reportsHtml = `
+        <div class="card fade-in" style="border-top: 4px solid var(--muted); margin-top:24px;">
+          <h2 style="margin-top:0; font-size:1.2rem;">Standard Report (Free)</h2>
+          <div class="report">${formatMarkdown(data.ruleBasedReport)}</div>
+        </div>
+      `;
+
+      // 2. Premium AI Card
+      if (data.aiReport) {
+        // If API key is present and AI generated a report
+        reportsHtml += `
+          <div class="card fade-in" style="border-top: 4px solid #8b5cf6; background: linear-gradient(180deg, rgba(30,27,75,0.4) 0%, var(--panel) 100%); margin-top:24px;">
+            <h2 style="margin-top:0; font-size:1.2rem; color: #a78bfa;">✨ Premium AI Remediation Guide</h2>
+            <p style="color:var(--muted); font-size:0.9rem; margin-top:-8px;">Customized architecture fixes generated by Gemini AI.</p>
+            <div class="report" style="line-height:1.6;">${formatMarkdown(data.aiReport)}</div>
+          </div>
+        `;
+      } else {
+        // Upsell state: No API key (or user hasn't paid)
+        reportsHtml += `
+          <div class="card fade-in" style="border-top: 4px solid #8b5cf6; background: linear-gradient(180deg, rgba(30,27,75,0.4) 0%, var(--panel) 100%); margin-top:24px; text-align:center; padding:32px 20px;">
+            <h2 style="margin-top:0; font-size:1.4rem; color: #a78bfa;">✨ Premium AI Remediation Guide</h2>
+            <p style="color: var(--muted); margin-bottom: 24px;">Upgrade to Premium to get a bespoke, AI-generated action plan with exact configuration snippets written specifically for your tech stack.</p>
+            <button style="background: #8b5cf6; color: white; width: auto; padding: 10px 24px; font-weight:bold; border-radius:10px; border:none; cursor:pointer;">Unlock Premium ($15/mo)</button>
+          </div>
+        `;
+      }
+
+      document.getElementById('reportLoading').outerHTML = reportsHtml;
+      applyStaggeredFadeIn(resultsEl);
+      explainBtn.style.display = 'none'; // Hide the button after generating
+      
+    } catch (err) {
+      document.getElementById('reportLoading').outerHTML = `<div class="card bad">Report generation failed: ${err.message}</div>`;
+      explainBtn.disabled = false;
+    }
   });
 }
 
-// Apply staggered fade-in timing to result cards after they're inserted into the DOM.
 function applyStaggeredFadeIn(containerEl) {
   const cards = containerEl.querySelectorAll('.fade-in');
   cards.forEach((el, i) => {

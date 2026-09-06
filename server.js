@@ -1,7 +1,4 @@
 // SiteScanner - Passive Security Health Checker
-// Only performs read-only, non-intrusive checks (no exploitation, no brute force, no port scanning of arbitrary hosts).
-// Users must confirm ownership/permission before scanning (enforced client-side + noted in ToS).
-
 import "dotenv/config";
 import express from "express";
 import fetch from "node-fetch";
@@ -11,35 +8,65 @@ import tls from "tls";
 import { URL } from "url";
 import path from "path";
 import { fileURLToPath } from "url";
+import ipaddr from "ipaddr.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { generateReport } from "./report-generator.js";
-import { calculateScore, scoreToGrade } from "./report-generator.js";
-import { recordScan } from "./history-store.js";
-import { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
-import rateLimit from "express-rate-limit";
+import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
+import { recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
 
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-// Limits each IP to 10 scans per 15 minutes. Protects the server from being
-// hammered and keeps it usable for everyone since this is a free public tool.
-const scanLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: "Too many scans from this IP. Please wait a few minutes and try again." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// ---------- SSRF Guard ----------
+async function validatePublicHostname(hostname) {
+  if (!hostname || hostname.toLowerCase() === "localhost") {
+    throw new Error("Scanning localhost or internal targets is not permitted.");
+  }
 
-// ---------- Helper checks ----------
+  let addresses;
+  try {
+    addresses = await dns.lookup(hostname, { all: true });
+  } catch {
+    throw new Error("Could not resolve domain name.");
+  }
+
+  if (!addresses || addresses.length === 0) {
+    throw new Error("Could not resolve domain name.");
+  }
+
+  const blockedRanges = [
+    "loopback",
+    "private",
+    "linkLocal",
+    "broadcast",
+    "carrierGradeNat",
+    "uniqueLocal",
+    "reserved",
+  ];
+
+  for (const { address } of addresses) {
+    try {
+      const addr = ipaddr.parse(address);
+      const range = addr.range();
+
+      if (blockedRanges.includes(range)) {
+        throw new Error(`Domain resolves to a restricted or private IP address (${range}).`);
+      }
+    } catch (err) {
+      if (err.message.includes("restricted")) throw err;
+      throw new Error("Invalid IP address resolved for domain.");
+    }
+  }
+
+  return true;
+}
+
+// ---------- Check Functions ----------
 
 async function checkMalwareBlocklist(targetUrl) {
   const apiKey = process.env.GOOGLE_SAFE_BROWSING_API_KEY;
-  if (!apiKey) {
-    return { checked: false, reason: "no_api_key" };
-  }
+  if (!apiKey) return { checked: false, reason: "no_api_key" };
 
   const body = {
     client: { clientId: "sitescanner", clientVersion: "1.0.0" },
@@ -61,11 +88,7 @@ async function checkMalwareBlocklist(targetUrl) {
       }
     );
     const data = await res.json();
-
-    if (data.error) {
-      console.error("Safe Browsing API error:", data.error.message);
-      return { checked: false, reason: "api_error" };
-    }
+    if (data.error) return { checked: false, reason: "api_error" };
 
     const matches = data.matches || [];
     return {
@@ -74,7 +97,6 @@ async function checkMalwareBlocklist(targetUrl) {
       threatTypes: matches.map((m) => m.threatType),
     };
   } catch (err) {
-    console.error("Safe Browsing check failed:", err.message);
     return { checked: false, reason: "network_error" };
   }
 }
@@ -114,9 +136,6 @@ async function checkCookieSecurity(targetUrl) {
 }
 
 async function checkCORS(targetUrl) {
-  // Send a request with an arbitrary, clearly-foreign Origin header and see
-  // what the server echoes back — the same thing a browser does automatically
-  // on any cross-origin request. Fully passive, no exploitation.
   const res = await fetch(targetUrl, {
     method: "GET",
     headers: { Origin: "https://sitescanner-cors-test.example.com" },
@@ -136,9 +155,9 @@ const TRACKER_SIGNATURES = [
   { name: "Google Analytics", pattern: /google-analytics\.com|googletagmanager\.com\/gtag/i },
   { name: "Google Tag Manager", pattern: /googletagmanager\.com\/gtm/i },
   { name: "Facebook Pixel", pattern: /connect\.facebook\.net.*fbevents/i },
-  { name: "Hotjar (session recording)", pattern: /static\.hotjar\.com/i },
-  { name: "Microsoft Clarity (session recording)", pattern: /clarity\.ms/i },
-  { name: "FullStory (session recording)", pattern: /fullstory\.com/i },
+  { name: "Hotjar", pattern: /static\.hotjar\.com/i },
+  { name: "Microsoft Clarity", pattern: /clarity\.ms/i },
+  { name: "FullStory", pattern: /fullstory\.com/i },
   { name: "Mixpanel", pattern: /cdn\.mxpnl\.com/i },
   { name: "Segment", pattern: /cdn\.segment\.com/i },
   { name: "DoubleClick / Google Ads", pattern: /doubleclick\.net/i },
@@ -149,7 +168,6 @@ async function checkTrackers(targetUrl) {
   try {
     const res = await fetch(targetUrl, { method: "GET", redirect: "follow" });
     const html = await res.text();
-
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
     return { checked: true, trackers: found };
   } catch {
@@ -166,7 +184,6 @@ async function checkMixedContent(targetUrl) {
 
     const matches = [...html.matchAll(/(?:src|href)=["']http:\/\/([^"']+)["']/gi)].map((m) => m[0]);
     const unique = [...new Set(matches)].slice(0, 10);
-
     return { checked: true, insecureResources: unique };
   } catch {
     return { checked: false, insecureResources: [] };
@@ -183,8 +200,6 @@ async function checkSecurityHeaders(targetUrl) {
     "permissions-policy",
   ];
 
-  // Follow redirects manually so we always inspect the FINAL response's headers,
-  // not an intermediate redirect hop that may not carry security headers itself.
   let currentUrl = targetUrl;
   let res;
   for (let i = 0; i < 5; i++) {
@@ -197,7 +212,6 @@ async function checkSecurityHeaders(targetUrl) {
   }
 
   const headers = Object.fromEntries(res.headers.entries());
-
   const missing = requiredHeaders.filter((h) => !headers[h]);
   const present = requiredHeaders.filter((h) => headers[h]);
 
@@ -206,9 +220,6 @@ async function checkSecurityHeaders(targetUrl) {
     present,
     statusCode: res.status,
     finalUrl: currentUrl,
-    // Include raw server-identifying headers too — platform detection
-    // (Vercel/WordPress/Nginx/etc.) needs these, and they were previously
-    // dropped here, which silently broke platform-specific fix code.
     server: headers.server || null,
     xVercelId: headers["x-vercel-id"] || null,
     xPoweredBy: headers["x-powered-by"] || null,
@@ -220,9 +231,6 @@ async function checkTLS(hostname) {
     const socket = tls.connect(
       { host: hostname, port: 443, servername: hostname, timeout: 5000 },
       () => {
-        // getPeerCertificate() is the correct API on a TLSSocket; getCertificate()
-        // returns the LOCAL (client) cert, which is empty for outbound connections
-        // and was causing valid_to to be undefined -> "null days".
         const cert = socket.getPeerCertificate();
         const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
         const daysLeft = validTo
@@ -256,41 +264,28 @@ async function checkExposedFiles(baseUrl) {
     "/backup.zip",
   ];
 
-  // Many hosts (Vercel, Netlify, etc.) return 200 with a custom "not found" page
-  // instead of a real 404 status. To avoid false positives, first fetch a path
-  // that definitely doesn't exist and use ITS response as the baseline "not found"
-  // signature (status + rough content length). A sensitive path is only flagged
-  // as exposed if it differs meaningfully from that baseline.
-  const probePath = `/__sitescanner_probe_${Date.now()}`;
-  let baseline = { status: 404, length: 0 };
-  try {
-    const probeRes = await fetch(new URL(probePath, baseUrl).toString(), {
-      method: "GET",
-      redirect: "manual",
-    });
-    const probeText = await probeRes.text().catch(() => "");
-    baseline = { status: probeRes.status, length: probeText.length };
-  } catch {
-    // If the probe itself fails, fall back to assuming 404 = not found
-  }
-
   const results = [];
   for (const path of sensitivePaths) {
     try {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
+        headers: { "User-Agent": "SiteScanner/1.0" }
       });
+
+      if (res.status !== 200) {
+        results.push({ path, exposed: false, statusCode: res.status });
+        continue;
+      }
+
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
       const text = await res.text().catch(() => "");
 
-      const sameStatusAsBaseline = res.status === baseline.status;
-      const similarLengthToBaseline =
-        baseline.length > 0 && Math.abs(text.length - baseline.length) < 50;
+      const isHtmlPage = contentType.includes("text/html") || 
+                         text.trim().toLowerCase().startsWith("<!doctype") || 
+                         text.toLowerCase().includes("<html");
 
-      // Only flag as exposed if it returns success AND doesn't look like the
-      // same generic "not found" page the baseline probe got back.
-      const looksReal =
-        res.status === 200 && !(sameStatusAsBaseline && similarLengthToBaseline);
+      const looksReal = !isHtmlPage && text.length > 0;
 
       results.push({ path, exposed: looksReal, statusCode: res.status });
     } catch {
@@ -301,13 +296,11 @@ async function checkExposedFiles(baseUrl) {
 }
 
 async function checkEmailSpoofingProtection(hostname) {
-  const result = { spf: false, dmarc: false };
+  const result = { spf: false, dmarc: false, isSharedHost: isSharedHostSubdomain(hostname) };
+  if (result.isSharedHost) {
+    return result;
+  }
 
-  // Use an explicit, reliable public resolver (Google's 8.8.8.8) instead of
-  // whatever DNS server the local machine happens to be configured with.
-  // Some ISP/router DNS setups silently fail or truncate TXT record lookups,
-  // which was causing false "Missing" results for domains that actually have
-  // valid SPF/DMARC records (confirmed bug found testing against google.com).
   const resolver = new Resolver();
   resolver.setServers(["8.8.8.8", "1.1.1.1"]);
 
@@ -315,28 +308,20 @@ async function checkEmailSpoofingProtection(hostname) {
     const txt = await resolver.resolveTxt(hostname);
     const flat = txt.map((r) => r.join(""));
     result.spf = flat.some((r) => r.startsWith("v=spf1"));
-  } catch (err) {
-    console.error(`SPF lookup failed for ${hostname}:`, err.message);
-  }
+  } catch (err) {}
 
   try {
     const dmarcTxt = await resolver.resolveTxt(`_dmarc.${hostname}`);
     const flat = dmarcTxt.map((r) => r.join(""));
     result.dmarc = flat.some((r) => r.startsWith("v=DMARC1"));
-  } catch (err) {
-    console.error(`DMARC lookup failed for ${hostname}:`, err.message);
-  }
+  } catch (err) {}
 
   return result;
 }
 
-// ---------- Main scan endpoint ----------
+// ---------- Quick Check ----------
 
-// ---------- Quick Check: simple Safe/Unsafe answer, no technical report ----------
-// Same pattern as Google's own Safe Browsing Site Status Tool: lead with one
-// clear answer, let people drill into the full technical scan separately.
-
-app.post("/api/quickcheck", scanLimiter, async (req, res) => {
+app.post("/api/quickcheck", async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 
   if (!ownershipConfirmed) {
@@ -356,30 +341,60 @@ app.post("/api/quickcheck", scanLimiter, async (req, res) => {
   const hostname = parsed.hostname;
 
   try {
-    const [malware, tlsInfo] = await Promise.allSettled([
+    await validatePublicHostname(hostname);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  try {
+    const [malware, tlsInfo, headersInfo, exposedFiles] = await Promise.allSettled([
       checkMalwareBlocklist(parsed.toString()),
       checkTLS(hostname),
+      checkSecurityHeaders(parsed.toString()),
+      checkExposedFiles(parsed.toString()),
     ]);
 
     const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false };
     const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false };
+    const headersResult = headersInfo.status === "fulfilled" ? headersInfo.value : { missing: [] };
+    const exposed = exposedFiles.status === "fulfilled" ? exposedFiles.value : [];
 
-    const reasons = [];
-    let safe = true;
+    const criticalIssues = [];
+    const warningIssues = [];
 
     if (malwareResult.checked && malwareResult.flagged) {
-      safe = false;
-      reasons.push(`Flagged by Google Safe Browsing for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
+      criticalIssues.push(`Flagged for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
     }
     if (!tlsResult.valid) {
-      safe = false;
-      reasons.push("No valid SSL certificate — connection is not secure");
+      criticalIssues.push("No valid SSL certificate — connection is insecure");
+    } else if (tlsResult.daysUntilExpiry !== null && tlsResult.daysUntilExpiry < 14) {
+      warningIssues.push(`SSL certificate expires in ${tlsResult.daysUntilExpiry} days`);
+    }
+
+    if (exposed.length > 0) {
+      criticalIssues.push(`${exposed.length} sensitive file(s) publicly exposed`);
+    }
+
+    const missing = headersResult.missing || [];
+    if (missing.includes("content-security-policy")) {
+      warningIssues.push("Missing Content Security Policy (vulnerable to XSS)");
+    }
+    if (missing.includes("x-frame-options")) {
+      warningIssues.push("Missing Clickjacking protection");
+    }
+
+    let status = "safe";
+    if (criticalIssues.length > 0) {
+      status = "critical";
+    } else if (warningIssues.length > 0) {
+      status = "warning";
     }
 
     res.json({
       hostname,
-      safe,
-      reasons,
+      status,
+      safe: status !== "critical",
+      reasons: [...criticalIssues, ...warningIssues],
       malwareChecked: malwareResult.checked,
     });
   } catch (err) {
@@ -387,7 +402,7 @@ app.post("/api/quickcheck", scanLimiter, async (req, res) => {
   }
 });
 
-// ---------- Shareable report page + data ----------
+// ---------- Reports & Feeds ----------
 
 app.get("/report/:hostname", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "report.html"));
@@ -406,14 +421,9 @@ app.get("/api/recent", async (req, res) => {
   res.json(feed);
 });
 
-// ---------- Progressive scan via Server-Sent Events ----------
-// Runs the same checks as /api/scan, but streams a "progress" event the
-// instant each individual check finishes, instead of making the browser
-// wait for all 9 to complete before showing anything. Final event carries
-// the complete result, identical in shape to the POST /api/scan response,
-// so the same renderResults() function works for both.
+// ---------- Progressive Scan (SSE) ----------
 
-app.get("/api/scan-stream", scanLimiter, async (req, res) => {
+app.get("/api/scan-stream", async (req, res) => {
   const { url, confirmed, listPublicly } = req.query;
 
   if (confirmed !== "true") {
@@ -435,6 +445,18 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
 
   const hostname = parsed.hostname;
 
+  try {
+    await validatePublicHostname(hostname);
+  } catch (err) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write(`event: error_msg\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
+    return res.end();
+  }
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -445,7 +467,6 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Each entry: [key in raw object, human label shown while it runs, promise]
   const checkList = [
     ["headers", "Checking security headers", checkSecurityHeaders(parsed.toString())],
     ["tls", "Checking SSL certificate", checkTLS(hostname)],
@@ -486,7 +507,7 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
   await Promise.allSettled(settledPromises);
 
   try {
-    const { score } = calculateScore(raw);
+    const { score } = calculateScore(raw, hostname);
     const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
 
@@ -507,13 +528,15 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
 
     send("done", scanResult);
   } catch (err) {
-    send("error", { error: err.message });
+    send("error_msg", { error: err.message });
   }
 
   res.end();
 });
 
-app.post("/api/scan", scanLimiter, async (req, res) => {
+// ---------- Standard Scan ----------
+
+app.post("/api/scan", async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 
   if (!ownershipConfirmed) {
@@ -531,6 +554,12 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
   }
 
   const hostname = parsed.hostname;
+
+  try {
+    await validatePublicHostname(hostname);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 
   try {
     const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
@@ -557,10 +586,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
       trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
     };
 
-    // Calculate score now (not just when the plain-English report is
-    // requested) so every scan — even if the user never clicks "Get Report"
-    // — contributes to that domain's progress history.
-    const { score } = calculateScore(raw);
+    const { score } = calculateScore(raw, hostname);
     const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
 
@@ -574,15 +600,8 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
       history,
     };
 
-    // Save as the latest scan for this hostname so /report/:hostname can
-    // show it later — same public-visibility model as SSL Labs/Mozilla
-    // Observatory, where scanning a public site's security posture is
-    // treated as public information, not a private user record.
     await saveLatestScan(hostname, scanResult);
 
-    // Public activity feed is opt-in only (separate from the always-available
-    // permalink above) since a feed surfaces scans proactively to everyone,
-    // which is a bigger visibility step than a link only found if shared.
     if (req.body.listPublicly) {
       await addToPublicFeed(hostname, score, grade);
     }
@@ -593,7 +612,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
   }
 });
 
-// ---------- Plain-English report: rule-based, always free, no API needed ----------
+// ---------- Plain-English Report (Rule-based + Premium AI) ----------
 
 app.post("/api/explain", async (req, res) => {
   const { raw, hostname } = req.body;
@@ -603,8 +622,43 @@ app.post("/api/explain", async (req, res) => {
   }
 
   try {
-    const report = generateReport(raw, hostname);
-    res.json({ report, engine: "rule-based" });
+    // 1. ALWAYS generate the free, rule-based report
+    const ruleBasedReport = generateReport(raw, hostname);
+    let aiReport = null;
+
+    // 2. Generate the Premium AI report if the API key is configured
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        const prompt = `You are a senior web application security engineer. Analyze the following passive security scan for "${hostname}".
+Write a highly specific, actionable remediation guide for a developer. 
+Do not waste time explaining basic concepts (like what XSS is). Instead, focus entirely on HOW to fix the missing headers or vulnerabilities. Provide exact configuration snippets matching the detected hosting platform.
+Use markdown for formatting (bolding, code blocks).
+
+Raw Scan Data:
+${JSON.stringify(raw, null, 2)}`;
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.2 },
+            }),
+          }
+        );
+
+        const data = await response.json();
+        aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      } catch (err) {
+        console.error("Gemini report generation failed:", err.message);
+      }
+    }
+
+    // 3. Return BOTH reports to the frontend with the keys render.js expects
+    res.json({ ruleBasedReport, aiReport });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
