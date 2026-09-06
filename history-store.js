@@ -1,154 +1,157 @@
-// history-store.js
-//
-// Stores past scan scores per hostname so re-scanning the same site shows
-// real progress over time ("improved from F to B since last scan"), not
-// just a fresh one-shot snapshot every time.
-//
-// Uses a plain JSON file on disk — no database setup required. This is
-// intentionally simple: fine for a free single-instance tool at this scale.
+import { createClient } from "@libsql/client";
 
-import fs from "fs/promises";
-import path from "path";
+const dbUrl = process.env.TURSO_DATABASE_URL;
+const dbAuthToken = process.env.TURSO_AUTH_TOKEN;
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const HISTORY_FILE = path.join(DATA_DIR, "scan-history.json");
-const MAX_ENTRIES_PER_HOST = 20;
+let db = null;
+if (dbUrl) {
+  db = createClient({
+    url: dbUrl,
+    authToken: dbAuthToken || "",
+  });
+}
 
-async function ensureDataFile() {
+// Auto-initialize SQLite tables on startup
+let initialized = false;
+async function initDb() {
+  if (!db || initialized) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS scan_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hostname TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      grade TEXT NOT NULL,
+      scanned_at TEXT NOT NULL
+    );
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS latest_scans (
+      hostname TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS public_feed (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hostname TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      grade TEXT NOT NULL,
+      scanned_at TEXT NOT NULL
+    );
+  `);
+
+  initialized = true;
+}
+
+export async function recordScan(hostname, score, grade) {
+  if (!db) return { previous: null, history: [] };
+  await initDb();
+
+  const now = new Date().toISOString();
+
+  // Find the previous scan score for the delta
+  const prevResult = await db.execute({
+    sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 1`,
+    args: [hostname],
+  });
+
+  const previous = prevResult.rows.length > 0 ? {
+    score: Number(prevResult.rows[0].score),
+    grade: prevResult.rows[0].grade,
+    scannedAt: prevResult.rows[0].scanned_at,
+  } : null;
+
+  // Insert this scan into history
+  await db.execute({
+    sql: `INSERT INTO scan_history (hostname, score, grade, scanned_at) VALUES (?, ?, ?, ?)`,
+    args: [hostname, score, grade, now],
+  });
+
+  // Fetch last 10 scans for this domain
+  const historyResult = await db.execute({
+    sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 10`,
+    args: [hostname],
+  });
+
+  const history = historyResult.rows.map(r => ({
+    score: Number(r.score),
+    grade: r.grade,
+    scannedAt: r.scanned_at,
+  }));
+
+  return { previous, history };
+}
+
+export async function saveLatestScan(hostname, scanResult) {
+  if (!db) return;
+  await initDb();
+
+  const jsonString = JSON.stringify(scanResult);
+  const now = new Date().toISOString();
+
+  await db.execute({
+    sql: `INSERT INTO latest_scans (hostname, data, updated_at) 
+          VALUES (?, ?, ?) 
+          ON CONFLICT(hostname) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    args: [hostname, jsonString, now],
+  });
+}
+
+export async function getLatestScan(hostname) {
+  if (!db) return null;
+  await initDb();
+
+  const result = await db.execute({
+    sql: `SELECT data FROM latest_scans WHERE hostname = ? LIMIT 1`,
+    args: [hostname],
+  });
+
+  if (result.rows.length === 0) return null;
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.access(HISTORY_FILE);
-  } catch {
-    await fs.writeFile(HISTORY_FILE, JSON.stringify({}), "utf-8");
-  }
-}
-
-async function readAll() {
-  await ensureDataFile();
-  try {
-    const raw = await fs.readFile(HISTORY_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error("Failed to read history file, starting fresh:", err.message);
-    return {};
-  }
-}
-
-async function writeAll(data) {
-  await ensureDataFile();
-  await fs.writeFile(HISTORY_FILE, JSON.stringify(data, null, 2), "utf-8");
-}
-
-// Records a new scan result and returns the PREVIOUS entry (if any) so the
-// caller can show a before/after comparison immediately, without a second read.
-async function recordScan(hostname, score, grade) {
-  const all = await readAll();
-  const existing = all[hostname] || [];
-  const previous = existing.length > 0 ? existing[existing.length - 1] : null;
-
-  const entry = { timestamp: new Date().toISOString(), score, grade };
-  const updated = [...existing, entry].slice(-MAX_ENTRIES_PER_HOST);
-
-  all[hostname] = updated;
-  await writeAll(all);
-
-  return { previous, history: updated };
-}
-
-async function getHistory(hostname) {
-  const all = await readAll();
-  return all[hostname] || [];
-}
-
-// ---------- Latest full scan (for shareable /report/:hostname links) ----------
-
-const LATEST_FILE = path.join(DATA_DIR, "latest-scans.json");
-
-async function ensureLatestFile() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.access(LATEST_FILE);
-  } catch {
-    await fs.writeFile(LATEST_FILE, JSON.stringify({}), "utf-8");
-  }
-}
-
-async function saveLatestScan(hostname, data) {
-  await ensureLatestFile();
-  let all = {};
-  try {
-    all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
-  } catch {}
-  all[hostname] = { ...data, savedAt: new Date().toISOString() };
-  await fs.writeFile(LATEST_FILE, JSON.stringify(all, null, 2), "utf-8");
-}
-
-async function getLatestScan(hostname) {
-  await ensureLatestFile();
-  try {
-    const all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
-    return all[hostname] || null;
+    return JSON.parse(result.rows[0].data);
   } catch {
     return null;
   }
 }
 
-// ---------- Public activity feed (opt-in only, deduplicated) ----------
+export async function addToPublicFeed(hostname, score, grade) {
+  if (!db) return;
+  await initDb();
 
-const FEED_FILE = path.join(DATA_DIR, "public-feed.json");
-const MAX_FEED_ITEMS = 10;
+  const now = new Date().toISOString();
 
-async function ensureFeedFile() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.access(FEED_FILE);
-  } catch {
-    await fs.writeFile(FEED_FILE, JSON.stringify([]), "utf-8");
-  }
+  await db.execute({
+    sql: `INSERT INTO public_feed (hostname, score, grade, scanned_at) VALUES (?, ?, ?, ?)`,
+    args: [hostname, score, grade, now],
+  });
+
+  // Keep feed trimmed to the last 20 entries
+  await db.execute(`
+    DELETE FROM public_feed WHERE id NOT IN (
+      SELECT id FROM public_feed ORDER BY id DESC LIMIT 20
+    )
+  `);
 }
 
-async function addToPublicFeed(hostname, score, grade) {
-  await ensureFeedFile();
-  let feed = [];
-  try {
-    feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
-  } catch {}
+export async function getPublicFeed() {
+  if (!db) return [];
+  await initDb();
 
-  // Remove existing entry for this hostname so it doesn't duplicate
-  feed = feed.filter((item) => item.hostname !== hostname);
+  const result = await db.execute(`
+    SELECT hostname, score, grade, scanned_at 
+    FROM public_feed 
+    ORDER BY id DESC 
+    LIMIT 10
+  `);
 
-  // Prepend the latest scan
-  feed.unshift({ hostname, score, grade, timestamp: new Date().toISOString() });
-  feed = feed.slice(0, MAX_FEED_ITEMS);
-
-  await fs.writeFile(FEED_FILE, JSON.stringify(feed, null, 2), "utf-8");
+  return result.rows.map(r => ({
+    hostname: r.hostname,
+    score: Number(r.score),
+    grade: r.grade,
+    scannedAt: r.scanned_at,
+  }));
 }
-
-async function getPublicFeed() {
-  await ensureFeedFile();
-  try {
-    const feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
-    
-    // Deduplicate on read as well in case old duplicates exist on disk
-    const seen = new Set();
-    const deduplicated = [];
-    for (const item of feed) {
-      if (!seen.has(item.hostname)) {
-        seen.add(item.hostname);
-        deduplicated.push(item);
-      }
-    }
-    return deduplicated.slice(0, MAX_FEED_ITEMS);
-  } catch {
-    return [];
-  }
-}
-
-export {
-  recordScan,
-  getHistory,
-  saveLatestScan,
-  getLatestScan,
-  addToPublicFeed,
-  getPublicFeed,
-};
