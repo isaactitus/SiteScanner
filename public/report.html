@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Security Report</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --accent:#4ade80; --warn:#fbbf24; --bad:#f87171; --text:#e5e7eb; --muted:#94a3b8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); padding:24px 16px 60px; }
+  .wrap { max-width:640px; margin:0 auto; }
+  h1 { font-size:1.3rem; }
+  p.sub { color:var(--muted); font-size:0.9rem; }
+  .card { background:var(--panel); border-radius:14px; padding:18px; margin-top:16px; border:1px solid #1f2937; }
+  .result-item { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid #1f2937; font-size:0.92rem; }
+  .result-item:last-child { border-bottom:none; }
+  .status { font-weight:600; }
+  .ok { color:var(--accent); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .loading { color:var(--muted); text-align:center; padding:20px; }
+  .report { white-space:pre-wrap; line-height:1.5; font-size:0.95rem; }
+  .hero-grade-wrap { display:flex; align-items:center; gap:20px; padding:24px; }
+  .grade-ring { position:relative; width:96px; height:96px; flex-shrink:0; }
+  .grade-ring svg { transform:rotate(-90deg); width:100%; height:100%; }
+  .grade-ring-bg { fill:none; stroke:#1f2937; stroke-width:8; }
+  .grade-ring-fg { fill:none; stroke-width:8; stroke-linecap:round; }
+  .grade-ring-letter { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:700; }
+  .hero-grade-info { flex:1; }
+  .hero-grade-score { font-size:0.9rem; color:var(--muted); }
+  .hero-grade-delta { font-size:0.85rem; margin-top:4px; }
+  .summary-line { text-align:center; font-size:0.9rem; color:var(--muted); padding:0 0 16px; }
+  .summary-critical { color:var(--bad); font-weight:600; }
+  .summary-warning { color:var(--warn); font-weight:600; }
+  .summary-passed { color:var(--accent); font-weight:600; }
+  .fade-in { opacity:0; animation:fadeInUp 0.4s ease forwards; }
+  @keyframes fadeInUp { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+  a.back { color:var(--accent); font-size:0.9rem; text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Run your own scan</a>
+  <h1>🔍 Public Security Report</h1>
+  <p class="sub" id="subline">Loading…</p>
+  <div id="results"></div>
+</div>
+<script src="/render.js"></script>
+<script>
+(async () => {
+  const hostname = window.location.pathname.replace('/report/', '');
+  const resultsEl = document.getElementById('results');
+  const subline = document.getElementById('subline');
+
+  try {
+    const res = await fetch('/api/report/' + encodeURIComponent(hostname));
+    const data = await res.json();
+
+    if (data.error) {
+      subline.textContent = data.error;
+      return;
+    }
+
+    subline.textContent = 'Scanned ' + new Date(data.savedAt).toLocaleString();
+    renderResults(data);
+    applyStaggeredFadeIn(resultsEl);
+
+    // Explain button on shared reports still works, reusing /api/explain
+  } catch (err) {
+    subline.textContent = 'Failed to load report: ' + err.message;
+  }
+})();
+</script>
+</body>
+</html>

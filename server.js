@@ -9,9 +9,14 @@ import dns from "dns/promises";
 import { Resolver } from "dns/promises";
 import tls from "tls";
 import { URL } from "url";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport } from "./report-generator.js";
 import { calculateScore, scoreToGrade } from "./report-generator.js";
 import { recordScan } from "./history-store.js";
+import { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed } from "./history-store.js";
 import rateLimit from "express-rate-limit";
 
 const app = express();
@@ -382,6 +387,132 @@ app.post("/api/quickcheck", scanLimiter, async (req, res) => {
   }
 });
 
+// ---------- Shareable report page + data ----------
+
+app.get("/report/:hostname", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "report.html"));
+});
+
+app.get("/api/report/:hostname", async (req, res) => {
+  const data = await getLatestScan(req.params.hostname);
+  if (!data) {
+    return res.status(404).json({ error: "No scan found for this domain yet. Run a scan first." });
+  }
+  res.json(data);
+});
+
+app.get("/api/recent", async (req, res) => {
+  const feed = await getPublicFeed();
+  res.json(feed);
+});
+
+// ---------- Progressive scan via Server-Sent Events ----------
+// Runs the same checks as /api/scan, but streams a "progress" event the
+// instant each individual check finishes, instead of making the browser
+// wait for all 9 to complete before showing anything. Final event carries
+// the complete result, identical in shape to the POST /api/scan response,
+// so the same renderResults() function works for both.
+
+app.get("/api/scan-stream", scanLimiter, async (req, res) => {
+  const { url, confirmed, listPublicly } = req.query;
+
+  if (confirmed !== "true") {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "You must confirm you own or have permission to scan this domain." }));
+  }
+  if (!url) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "Missing url" }));
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: "Invalid URL" }));
+  }
+
+  const hostname = parsed.hostname;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Each entry: [key in raw object, human label shown while it runs, promise]
+  const checkList = [
+    ["headers", "Checking security headers", checkSecurityHeaders(parsed.toString())],
+    ["tls", "Checking SSL certificate", checkTLS(hostname)],
+    ["exposedFiles", "Checking for exposed files", checkExposedFiles(parsed.toString())],
+    ["emailAuth", "Checking email spoofing protection", checkEmailSpoofingProtection(hostname)],
+    ["cookies", "Checking cookie security", checkCookieSecurity(parsed.toString())],
+    ["cors", "Checking CORS policy", checkCORS(parsed.toString())],
+    ["mixedContent", "Checking for mixed content", checkMixedContent(parsed.toString())],
+    ["malware", "Checking malware/phishing status", checkMalwareBlocklist(parsed.toString())],
+    ["trackers", "Checking for tracking scripts", checkTrackers(parsed.toString())],
+  ];
+
+  const raw = {};
+  const defaults = {
+    headers: { error: "failed" },
+    tls: { error: "failed" },
+    exposedFiles: [],
+    emailAuth: { error: "failed" },
+    cookies: { hasCookies: false, cookies: [] },
+    cors: { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
+    mixedContent: { checked: false, insecureResources: [] },
+    malware: { checked: false, reason: "error" },
+    trackers: { checked: false, trackers: [] },
+  };
+
+  const settledPromises = checkList.map(([key, label, promise]) =>
+    promise
+      .then((value) => {
+        raw[key] = value;
+        send("progress", { key, label, status: "done" });
+      })
+      .catch((err) => {
+        raw[key] = defaults[key];
+        send("progress", { key, label, status: "error", message: err.message });
+      })
+  );
+
+  await Promise.allSettled(settledPromises);
+
+  try {
+    const { score } = calculateScore(raw);
+    const grade = scoreToGrade(score);
+    const { previous, history } = await recordScan(hostname, score, grade);
+
+    const scanResult = {
+      hostname,
+      scannedAt: new Date().toISOString(),
+      raw,
+      score,
+      grade,
+      previousScan: previous,
+      history,
+    };
+
+    await saveLatestScan(hostname, scanResult);
+    if (listPublicly === "true") {
+      await addToPublicFeed(hostname, score, grade);
+    }
+
+    send("done", scanResult);
+  } catch (err) {
+    send("error", { error: err.message });
+  }
+
+  res.end();
+});
+
 app.post("/api/scan", scanLimiter, async (req, res) => {
   const { url, ownershipConfirmed } = req.body;
 
@@ -433,7 +564,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
 
-    res.json({
+    const scanResult = {
       hostname,
       scannedAt: new Date().toISOString(),
       raw,
@@ -441,7 +572,22 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
       grade,
       previousScan: previous,
       history,
-    });
+    };
+
+    // Save as the latest scan for this hostname so /report/:hostname can
+    // show it later — same public-visibility model as SSL Labs/Mozilla
+    // Observatory, where scanning a public site's security posture is
+    // treated as public information, not a private user record.
+    await saveLatestScan(hostname, scanResult);
+
+    // Public activity feed is opt-in only (separate from the always-available
+    // permalink above) since a feed surfaces scans proactively to everyone,
+    // which is a bigger visibility step than a link only found if shared.
+    if (req.body.listPublicly) {
+      await addToPublicFeed(hostname, score, grade);
+    }
+
+    res.json(scanResult);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -66,3 +66,72 @@ async function getHistory(hostname) {
 }
 
 export { recordScan, getHistory };
+
+// ---------- Latest full scan (for shareable /report/:hostname links) ----------
+
+const LATEST_FILE = path.join(DATA_DIR, "latest-scans.json");
+
+async function ensureLatestFile() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.access(LATEST_FILE);
+  } catch {
+    await fs.writeFile(LATEST_FILE, JSON.stringify({}), "utf-8");
+  }
+}
+
+async function saveLatestScan(hostname, data) {
+  await ensureLatestFile();
+  let all = {};
+  try {
+    all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
+  } catch {}
+  all[hostname] = { ...data, savedAt: new Date().toISOString() };
+  await fs.writeFile(LATEST_FILE, JSON.stringify(all, null, 2), "utf-8");
+}
+
+async function getLatestScan(hostname) {
+  await ensureLatestFile();
+  try {
+    const all = JSON.parse(await fs.readFile(LATEST_FILE, "utf-8"));
+    return all[hostname] || null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Public activity feed (opt-in only) ----------
+
+const FEED_FILE = path.join(DATA_DIR, "public-feed.json");
+const MAX_FEED_ITEMS = 15;
+
+async function ensureFeedFile() {
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.access(FEED_FILE);
+  } catch {
+    await fs.writeFile(FEED_FILE, JSON.stringify([]), "utf-8");
+  }
+}
+
+async function addToPublicFeed(hostname, score, grade) {
+  await ensureFeedFile();
+  let feed = [];
+  try {
+    feed = JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+  } catch {}
+  feed.unshift({ hostname, score, grade, timestamp: new Date().toISOString() });
+  feed = feed.slice(0, MAX_FEED_ITEMS);
+  await fs.writeFile(FEED_FILE, JSON.stringify(feed, null, 2), "utf-8");
+}
+
+async function getPublicFeed() {
+  await ensureFeedFile();
+  try {
+    return JSON.parse(await fs.readFile(FEED_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+export { saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed };
