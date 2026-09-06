@@ -60,10 +60,10 @@ function renderResults(data, targetId = 'results') {
     </div>
   `;
 
-  // TLS
+  // SSL/TLS Card
   html += `<div class="card">
     <strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
-  if (raw.tls.valid) {
+  if (raw.tls?.valid) {
     const days = raw.tls.daysUntilExpiry;
     const badgeClass = days < 14 ? 'status-bad' : days < 30 ? 'status-warn' : 'status-ok';
     html += `
@@ -71,17 +71,17 @@ function renderResults(data, targetId = 'results') {
       <div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>
     `;
   } else {
-    html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid: ${raw.tls.error || 'Connection Failed'}</span></div>`;
+    html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure (${raw.tls?.error || 'Timed out'})</span></div>`;
   }
   html += `</div>`;
 
   // Security Headers
   html += `<div class="card">
     <strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
-  (raw.headers.missing || []).forEach(h => {
+  (raw.headers?.missing || []).forEach(h => {
     html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-bad">Missing</span></div>`;
   });
-  (raw.headers.present || []).forEach(h => {
+  (raw.headers?.present || []).forEach(h => {
     html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`;
   });
   html += `</div>`;
@@ -89,7 +89,7 @@ function renderResults(data, targetId = 'results') {
   // Exposed Files
   html += `<div class="card">
     <strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (raw.exposedFiles.length === 0) {
+  if (!raw.exposedFiles || raw.exposedFiles.length === 0) {
     html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   } else {
     raw.exposedFiles.forEach(f => {
@@ -105,20 +105,30 @@ function renderResults(data, targetId = 'results') {
     html += `<div class="result-item"><span>SPF / DMARC Inspection</span><span class="status-badge status-ok">Skipped (Shared Subdomain)</span></div>`;
   } else {
     html += `
-      <div class="result-item"><span>SPF Verification Record</span><span class="status-badge ${raw.emailAuth.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth.spf ? 'Configured' : 'Missing'}</span></div>
-      <div class="result-item"><span>DMARC Enforcement Policy</span><span class="status-badge ${raw.emailAuth.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth.dmarc ? 'Configured' : 'Missing'}</span></div>
+      <div class="result-item"><span>SPF Verification Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Configured' : 'Missing'}</span></div>
+      <div class="result-item"><span>DMARC Enforcement Policy</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Configured' : 'Missing'}</span></div>
     `;
   }
   html += `</div>`;
 
-  // Report Trigger Dock
+  // Action Bar with PDF Export & AI Remediation
   html += `
-    <div id="reportContainer">
-      <button id="explainBtn" class="cta-button" type="button">✨ Generate Plain-English & AI Architecture Guide</button>
+    <div class="action-grid">
+      <button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button>
+      <button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button>
     </div>
+    <div id="reportContainer" style="margin-top: 16px;"></div>
   `;
 
   resultsEl.innerHTML = html;
+
+  // Trigger PDF print dialog with cleaned title
+  document.getElementById('exportPdfBtn').addEventListener('click', () => {
+    const originalTitle = document.title;
+    document.title = `SiteScanner_Audit_${hostname}_${new Date().toISOString().slice(0,10)}`;
+    window.print();
+    document.title = originalTitle;
+  });
 
   function formatMarkdown(text) {
     if (!text) return "";
@@ -170,7 +180,7 @@ function renderResults(data, targetId = 'results') {
     } catch (err) {
       reportContainer.innerHTML = `
         <div class="card" style="border-color:var(--brand-rose);">Report error: ${err.message}</div>
-        <button id="retryReportBtn" class="cta-button">Retry Analysis</button>
+        <button id="retryReportBtn" class="cta-button" style="margin-top: 8px;">Retry Analysis</button>
       `;
       document.getElementById('retryReportBtn').addEventListener('click', requestRemediation);
     }
