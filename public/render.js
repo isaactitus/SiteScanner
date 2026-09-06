@@ -31,7 +31,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div></div>`;
 
-  // Summary tallies
+  // Summary counts
   let critical = 0, warning = 0, passed = 0;
   if (!raw.tls?.valid) critical++; else passed++;
   (raw.headers?.missing || []).forEach(() => critical++);
@@ -56,7 +56,7 @@ function renderResults(data, targetId = 'results') {
     <span class="summary-passed">${passed} passed</span>
   </div>`;
 
-  // TLS
+  // TLS Card
   html += `<div class="card fade-in"><strong>🔒 SSL/TLS Certificate</strong>`;
   if (raw.tls.valid) {
     const days = raw.tls.daysUntilExpiry;
@@ -68,7 +68,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Headers
+  // Headers Card
   html += `<div class="card fade-in"><strong>🛡️ Security Headers</strong>`;
   (raw.headers.missing || []).forEach(h => {
     html += `<div class="result-item"><span>${h}</span><span class="status bad">Missing</span></div>`;
@@ -78,7 +78,7 @@ function renderResults(data, targetId = 'results') {
   });
   html += `</div>`;
 
-  // Exposed files
+  // Exposed Files Card
   html += `<div class="card fade-in"><strong>📁 Exposed Sensitive Files</strong>`;
   if (raw.exposedFiles.length === 0) {
     html += `<div class="result-item"><span>None found</span><span class="status ok">Good</span></div>`;
@@ -89,7 +89,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Email Spoofing
+  // Email Spoofing Card
   html += `<div class="card fade-in"><strong>✉️ Email Spoofing Protection</strong>`;
   if (isSharedHost) {
     html += `<div class="result-item"><span>SPF / DMARC</span><span class="status ok">N/A (Shared Subdomain)</span></div>`;
@@ -99,7 +99,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Cookies
+  // Cookies Card
   if (raw.cookies?.hasCookies) {
     html += `<div class="card fade-in"><strong>🍪 Cookie Security</strong>`;
     raw.cookies.cookies.forEach(c => {
@@ -109,7 +109,7 @@ function renderResults(data, targetId = 'results') {
     html += `</div>`;
   }
 
-  // CORS
+  // CORS Card
   html += `<div class="card fade-in"><strong>🌐 CORS Policy</strong>`;
   if (raw.cors?.dangerousCombo) {
     html += `<div class="result-item"><span>Reflects origin + credentials</span><span class="status bad">Dangerous</span></div>`;
@@ -120,7 +120,7 @@ function renderResults(data, targetId = 'results') {
   }
   html += `</div>`;
 
-  // Mixed Content
+  // Mixed Content Card
   if (raw.mixedContent?.checked) {
     html += `<div class="card fade-in"><strong>🔓 Mixed Content</strong>`;
     if (raw.mixedContent.insecureResources.length === 0) {
@@ -131,7 +131,7 @@ function renderResults(data, targetId = 'results') {
     html += `</div>`;
   }
 
-  // Malware
+  // Malware Card
   if (raw.malware?.checked) {
     html += `<div class="card fade-in"><strong>🚨 Malware / Phishing Check</strong>`;
     if (raw.malware.flagged) {
@@ -142,7 +142,7 @@ function renderResults(data, targetId = 'results') {
     html += `</div>`;
   }
 
-  // Trackers
+  // Tracking Scripts Card
   if (raw.trackers?.checked) {
     html += `<div class="card fade-in"><strong>👁️ Tracking Scripts</strong>`;
     if (raw.trackers.trackers.length === 0) {
@@ -155,10 +155,14 @@ function renderResults(data, targetId = 'results') {
     html += `</div>`;
   }
 
-  html += `<button id="explainBtn">Get Plain-English Report</button>`;
+  // Container for report output and initial trigger button
+  html += `
+    <div id="reportContainer">
+      <button id="explainBtn" style="margin-top:16px;">Get Plain-English Report</button>
+    </div>
+  `;
   resultsEl.innerHTML = html;
 
-  // Lightweight markdown formatter for the AI output
   function formatMarkdown(text) {
     if (!text) return "";
     return text
@@ -170,11 +174,10 @@ function renderResults(data, targetId = 'results') {
       .replace(/\n/g, '<br/>');
   }
 
-  const explainBtn = document.getElementById('explainBtn');
-  explainBtn.addEventListener('click', async () => {
-    explainBtn.disabled = true;
-    resultsEl.insertAdjacentHTML('beforeend', '<div class="card loading" id="reportLoading">Analyzing architecture & generating reports…</div>');
-    
+  async function requestExplanation() {
+    const reportContainer = document.getElementById('reportContainer');
+    reportContainer.innerHTML = '<div class="card loading" id="reportLoading">Analyzing architecture & querying remediation engine…</div>';
+
     try {
       const res = await fetch('/api/explain', {
         method: 'POST',
@@ -182,10 +185,9 @@ function renderResults(data, targetId = 'results') {
         body: JSON.stringify({ raw, hostname }),
       });
       const data = await res.json();
-      
+
       if (data.error) throw new Error(data.error);
 
-      // 1. Free Report Card
       let reportsHtml = `
         <div class="card fade-in" style="border-top: 4px solid var(--muted); margin-top:24px;">
           <h2 style="margin-top:0; font-size:1.2rem;">Standard Report (Free)</h2>
@@ -193,9 +195,7 @@ function renderResults(data, targetId = 'results') {
         </div>
       `;
 
-      // 2. Premium AI Card
       if (data.aiReport) {
-        // If API key is present and AI generated a report
         reportsHtml += `
           <div class="card fade-in" style="border-top: 4px solid #8b5cf6; background: linear-gradient(180deg, rgba(30,27,75,0.4) 0%, var(--panel) 100%); margin-top:24px;">
             <h2 style="margin-top:0; font-size:1.2rem; color: #a78bfa;">✨ Premium AI Remediation Guide</h2>
@@ -204,25 +204,36 @@ function renderResults(data, targetId = 'results') {
           </div>
         `;
       } else {
-        // Upsell state: No API key (or user hasn't paid)
+        const errorDetail = data.aiError ? `<div style="color:var(--bad); font-size:0.85rem; margin-bottom:12px;">Notice: ${data.aiError}</div>` : '';
         reportsHtml += `
           <div class="card fade-in" style="border-top: 4px solid #8b5cf6; background: linear-gradient(180deg, rgba(30,27,75,0.4) 0%, var(--panel) 100%); margin-top:24px; text-align:center; padding:32px 20px;">
             <h2 style="margin-top:0; font-size:1.4rem; color: #a78bfa;">✨ Premium AI Remediation Guide</h2>
-            <p style="color: var(--muted); margin-bottom: 24px;">Upgrade to Premium to get a bespoke, AI-generated action plan with exact configuration snippets written specifically for your tech stack.</p>
-            <button style="background: #8b5cf6; color: white; width: auto; padding: 10px 24px; font-weight:bold; border-radius:10px; border:none; cursor:pointer;">Unlock Premium ($15/mo)</button>
+            <p style="color: var(--muted); margin-bottom: 16px;">AI-generated action plan with exact configuration snippets written for your tech stack.</p>
+            ${errorDetail}
+            <button id="retryAiBtn" style="background: #8b5cf6; color: white; width: auto; padding: 10px 24px; font-weight:bold; border-radius:10px; border:none; cursor:pointer;">Retry AI Generation</button>
           </div>
         `;
       }
 
-      document.getElementById('reportLoading').outerHTML = reportsHtml;
-      applyStaggeredFadeIn(resultsEl);
-      explainBtn.style.display = 'none'; // Hide the button after generating
-      
+      reportContainer.innerHTML = reportsHtml;
+      applyStaggeredFadeIn(reportContainer);
+
+      const retryBtn = document.getElementById('retryAiBtn');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+          requestExplanation();
+        });
+      }
     } catch (err) {
-      document.getElementById('reportLoading').outerHTML = `<div class="card bad">Report generation failed: ${err.message}</div>`;
-      explainBtn.disabled = false;
+      reportContainer.innerHTML = `
+        <div class="card bad">Report generation failed: ${err.message}</div>
+        <button id="explainBtn" style="margin-top:16px;">Try Again</button>
+      `;
+      document.getElementById('explainBtn').addEventListener('click', requestExplanation);
     }
-  });
+  }
+
+  document.getElementById('explainBtn').addEventListener('click', requestExplanation);
 }
 
 function applyStaggeredFadeIn(containerEl) {

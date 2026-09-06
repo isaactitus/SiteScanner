@@ -270,7 +270,7 @@ async function checkExposedFiles(baseUrl) {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
-        headers: { "User-Agent": "SiteScanner/1.0" }
+        headers: { "User-Agent": "SiteScanner/1.0" },
       });
 
       if (res.status !== 200) {
@@ -281,9 +281,10 @@ async function checkExposedFiles(baseUrl) {
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       const text = await res.text().catch(() => "");
 
-      const isHtmlPage = contentType.includes("text/html") || 
-                         text.trim().toLowerCase().startsWith("<!doctype") || 
-                         text.toLowerCase().includes("<html");
+      const isHtmlPage =
+        contentType.includes("text/html") ||
+        text.trim().toLowerCase().startsWith("<!doctype") ||
+        text.toLowerCase().includes("<html");
 
       const looksReal = !isHtmlPage && text.length > 0;
 
@@ -612,7 +613,7 @@ app.post("/api/scan", async (req, res) => {
   }
 });
 
-// ---------- Plain-English Report (Rule-based + Premium AI) ----------
+// ---------- Plain-English Report (Rule-based + Gemini Remediation) ----------
 
 app.post("/api/explain", async (req, res) => {
   const { raw, hostname } = req.body;
@@ -622,24 +623,27 @@ app.post("/api/explain", async (req, res) => {
   }
 
   try {
-    // 1. ALWAYS generate the free, rule-based report
     const ruleBasedReport = generateReport(raw, hostname);
     let aiReport = null;
+    let aiError = null;
 
-    // 2. Generate the Premium AI report if the API key is configured
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
+
+    if (!geminiKey) {
+      aiError = "No GEMINI_API_KEY found in .env file.";
+      console.warn("API Explain: GEMINI_API_KEY is not defined in environment.");
+    } else {
       try {
         const prompt = `You are a senior web application security engineer. Analyze the following passive security scan for "${hostname}".
-Write a highly specific, actionable remediation guide for a developer. 
+Write a concise, actionable remediation guide for a developer. 
 Do not waste time explaining basic concepts (like what XSS is). Instead, focus entirely on HOW to fix the missing headers or vulnerabilities. Provide exact configuration snippets matching the detected hosting platform.
-Use markdown for formatting (bolding, code blocks).
+Use clean markdown with headers and code blocks.
 
 Raw Scan Data:
 ${JSON.stringify(raw, null, 2)}`;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -650,15 +654,25 @@ ${JSON.stringify(raw, null, 2)}`;
           }
         );
 
-        const data = await response.json();
-        aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!response.ok) {
+          const errBody = await response.text();
+          console.error(`Gemini API Error HTTP ${response.status}:`, errBody);
+          aiError = `Gemini API returned status ${response.status}. Check server logs.`;
+        } else {
+          const data = await response.json();
+          aiReport = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+          if (!aiReport) {
+            console.warn("Gemini response missing candidate content:", JSON.stringify(data));
+            aiError = "Gemini returned an empty candidate response.";
+          }
+        }
       } catch (err) {
-        console.error("Gemini report generation failed:", err.message);
+        console.error("Gemini API call threw an exception:", err.message);
+        aiError = `Request failed: ${err.message}`;
       }
     }
 
-    // 3. Return BOTH reports to the frontend with the keys render.js expects
-    res.json({ ruleBasedReport, aiReport });
+    res.json({ ruleBasedReport, aiReport, aiError });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
