@@ -17,8 +17,11 @@
     "google-auth-library": "^11.0.2",
     "ipaddr.js": "^2.5.0",
     "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.6.0",
     "node-fetch": "^3.3.2",
+    "puppeteer": "^25.10.0",
     "razorpay": "^2.9.8",
+    "resend": "^6.26.0",
     "stripe": "^22.6.1"
   }
 }

@@ -15,6 +15,7 @@ import Razorpay from "razorpay";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
+import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
@@ -28,7 +29,10 @@ import {
   getUserProfile,
   grantDomainEntitlement,
   checkDomainEntitlement,
+  addMonitor,
+  getUserMonitors,
 } from "./history-store.js";
+import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -515,6 +519,35 @@ async function checkEmailSpoofingProtection(hostname) {
   return result;
 }
 
+// Reusable Complete Audit Pipeline
+export async function runScanPipeline(hostname) {
+  const targetHttpsUrl = `https://${hostname}`;
+  const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] =
+    await Promise.allSettled([
+      checkSecurityHeaders(targetHttpsUrl),
+      checkTLS(hostname),
+      checkExposedFiles(targetHttpsUrl),
+      checkEmailSpoofingProtection(hostname),
+      checkCookieSecurity(targetHttpsUrl),
+      checkCORS(targetHttpsUrl),
+      checkMixedContent(targetHttpsUrl),
+      checkMalwareBlocklist(targetHttpsUrl),
+      checkTrackers(targetHttpsUrl),
+    ]);
+
+  return {
+    headers: headers.status === "fulfilled" ? headers.value : { error: headers.reason?.message },
+    tls: tlsInfo.status === "fulfilled" ? tlsInfo.value : { error: tlsInfo.reason?.message },
+    exposedFiles: exposedFiles.status === "fulfilled" ? exposedFiles.value : [],
+    emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: emailAuth.reason?.message },
+    cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
+    cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
+    mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
+    malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
+    trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
+  };
+}
+
 // ---------- Razorpay Monetization Endpoints ----------
 
 app.post("/api/create-order", async (req, res) => {
@@ -560,6 +593,91 @@ app.post("/api/verify-payment", async (req, res) => {
     res.json({ success: true, hostname });
   } else {
     res.status(400).json({ success: false, error: "Invalid payment signature." });
+  }
+});
+
+// ---------- Scheduled Monitors Endpoints ----------
+
+app.post("/api/monitors", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Please log in to manage scheduled monitoring." });
+  const { hostname, interval, threshold } = req.body;
+  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
+
+  const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
+  if (!hasEntitlement) {
+    return res.status(403).json({ error: "Pro unlock required to enable automated scheduled scans." });
+  }
+
+  await addMonitor({ userId: req.user.id, hostname, interval, threshold });
+  res.json({ success: true });
+});
+
+app.get("/api/monitors", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  const monitors = await getUserMonitors(req.user.id);
+  res.json(monitors);
+});
+
+// ---------- Download PDF Endpoint (Puppeteer) ----------
+
+app.get("/api/download-pdf/:hostname", async (req, res) => {
+  const { hostname } = req.params;
+  let browser = null;
+
+  try {
+    console.log(`[PDF] Starting PDF generation for ${hostname}...`);
+    
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 1600 });
+
+    const port = process.env.PORT || 3000;
+    
+    // 1. Navigate to the page (report.html will automatically fetch and render the data)
+    await page.goto(`http://localhost:${port}/report/${hostname}`, {
+      waitUntil: "networkidle0",
+      timeout: 30000
+    });
+
+    // 2. Wait for the main grade card to appear in the DOM, meaning rendering is 100% complete
+    await page.waitForSelector(".hero-grade-card", { timeout: 15000 });
+
+    // 3. Strip out the UI buttons, navigation, and force a clean white background for the PDF
+    await page.evaluate(() => {
+      const hideSelectors = ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'];
+      hideSelectors.forEach(selector => {
+        const el = document.querySelector(selector);
+        if (el) el.style.display = 'none';
+      });
+      
+      document.body.style.background = '#ffffff';
+      document.body.style.backgroundImage = 'none';
+      document.documentElement.style.background = '#ffffff';
+    });
+
+    // 4. Generate the raw PDF binary
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" },
+    });
+
+    await browser.close();
+
+    // 5. Explicitly force Express to send a binary Buffer, avoiding string corruption
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${hostname}.pdf"`);
+    res.send(Buffer.from(pdfBuffer));
+    
+    console.log(`[PDF] Successfully sent PDF for ${hostname}`);
+  } catch (err) {
+    if (browser) await browser.close();
+    console.error("[PDF Generation Error]:", err);
+    res.status(500).json({ error: "Failed to generate executive PDF: " + err.message });
   }
 });
 
@@ -782,33 +900,8 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 
-  const targetHttpsUrl = `https://${hostname}`;
-
   try {
-    const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
-      checkSecurityHeaders(targetHttpsUrl),
-      checkTLS(hostname),
-      checkExposedFiles(targetHttpsUrl),
-      checkEmailSpoofingProtection(hostname),
-      checkCookieSecurity(targetHttpsUrl),
-      checkCORS(targetHttpsUrl),
-      checkMixedContent(targetHttpsUrl),
-      checkMalwareBlocklist(targetHttpsUrl),
-      checkTrackers(targetHttpsUrl),
-    ]);
-
-    const raw = {
-      headers: headers.status === "fulfilled" ? headers.value : { error: headers.reason?.message },
-      tls: tlsInfo.status === "fulfilled" ? tlsInfo.value : { error: tlsInfo.reason?.message },
-      exposedFiles: exposedFiles.status === "fulfilled" ? exposedFiles.value : [],
-      emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: emailAuth.reason?.message },
-      cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
-      cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
-      mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
-      malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
-      trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
-    };
-
+    const raw = await runScanPipeline(hostname);
     const { score } = calculateScore(raw, hostname);
     const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
@@ -844,12 +937,10 @@ app.post("/api/explain", aiLimiter, async (req, res) => {
     return res.status(400).json({ error: "Missing scan data." });
   }
 
-  // Strict paywall gate: Require sign-in
   if (!req.user) {
     return res.status(401).json({ error: "Authentication required. Please sign in to access AI blueprints." });
   }
 
-  // Strict paywall gate: Require domain entitlement or global pro
   const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
   if (!hasEntitlement) {
     return res.status(403).json({ error: "Pro entitlement required. Please unlock this domain." });
@@ -927,4 +1018,7 @@ ${JSON.stringify({
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SiteScanner running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`SiteScanner running on http://localhost:${PORT}`);
+  initCronJobs(runScanPipeline);
+});

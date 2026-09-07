@@ -1,6 +1,7 @@
+// history-store.js
 import { createClient } from "@libsql/client";
 
-const db = createClient({
+export const db = createClient({
   url: process.env.TURSO_DATABASE_URL || "file:local.db",
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
@@ -60,6 +61,23 @@ export async function initDb() {
       hostname TEXT NOT NULL,
       order_id TEXT,
       unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, hostname)
+    )
+  `);
+
+  // Scheduled Monitoring Table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS monitors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      check_interval TEXT DEFAULT 'weekly',
+      alert_threshold INTEGER DEFAULT 70,
+      next_run_at INTEGER NOT NULL,
+      last_score INTEGER,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id),
       UNIQUE(user_id, hostname)
     )
@@ -142,7 +160,6 @@ export async function recordScan(hostname, score, grade) {
     args: [hostname],
   });
   
-  // Explicitly passing CURRENT_TIMESTAMP to satisfy legacy NOT NULL schema constraints
   await db.execute({
     sql: `INSERT INTO scan_history (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
     args: [hostname, score, grade],
@@ -174,20 +191,17 @@ export async function getLatestScan(hostname) {
 
 export async function addToPublicFeed(hostname, score, grade) {
   try {
-    // Attempt 1: Legacy schema column name
     await db.execute({
       sql: `INSERT INTO public_feed (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       args: [hostname, score, grade],
     });
   } catch {
     try {
-      // Attempt 2: Modern schema column name
       await db.execute({
         sql: `INSERT INTO public_feed (hostname, score, grade, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
         args: [hostname, score, grade],
       });
     } catch {
-      // Attempt 3: Let database defaults populate timestamp
       await db.execute({
         sql: `INSERT INTO public_feed (hostname, score, grade) VALUES (?, ?, ?)`,
         args: [hostname, score, grade],
@@ -204,4 +218,26 @@ export async function getPublicFeed() {
     console.error("Public feed query fallback:", err.message);
     return [];
   }
+}
+
+// Scheduled Monitor Helpers
+export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) {
+  const nextRun = Date.now();
+  await db.execute({
+    sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_id, hostname) DO UPDATE SET
+            check_interval = excluded.check_interval,
+            alert_threshold = excluded.alert_threshold,
+            is_active = 1`,
+    args: [userId, hostname.toLowerCase(), interval, threshold, nextRun],
+  });
+}
+
+export async function getUserMonitors(userId) {
+  const res = await db.execute({
+    sql: `SELECT * FROM monitors WHERE user_id = ? ORDER BY id DESC`,
+    args: [userId],
+  });
+  return res.rows;
 }

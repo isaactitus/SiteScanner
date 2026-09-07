@@ -1,5 +1,31 @@
+// public/render.js
 let currentUser = null;
 const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.googleusercontent.com";
+
+// Add this global helper so all pages can load the feed
+window.loadRecentFeed = async function() {
+  const recentListEl = document.getElementById('recentList');
+  if (!recentListEl) return;
+  try {
+    const res = await fetch('/api/recent');
+    const items = await res.json();
+    if (!items || items.length === 0) {
+      recentListEl.innerHTML = '<span style="color:var(--text-tertiary); font-size:0.8rem;">No recent scans</span>';
+      return;
+    }
+    recentListEl.innerHTML = items.map(item => {
+      const gradeColor = item.score >= 75 ? 'var(--brand-emerald)' : item.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+      return `
+        <a href="/report/${encodeURIComponent(item.hostname)}" class="feed-chip">
+          <span>${item.hostname}</span>
+          <span class="feed-chip-grade" style="color:${gradeColor}">${item.grade} (${item.score})</span>
+        </a>
+      `;
+    }).join('');
+  } catch {
+    recentListEl.innerHTML = '<span style="color:var(--text-tertiary); font-size:0.8rem;">Feed offline</span>';
+  }
+};
 
 // Check session on load
 async function checkAuthSession() {
@@ -122,7 +148,6 @@ async function handleGoogleResponse(response) {
 }
 
 function isDomainUnlocked(hostname) {
-  // If not logged in, domain is strictly locked
   if (!hostname || !currentUser) return false;
   if (currentUser.is_pro) return true;
   if (currentUser.unlockedDomains?.includes(hostname.toLowerCase())) return true;
@@ -151,7 +176,7 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
         </div>
         <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Unlock Pro Feature</h3>
         <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">
-          <strong>${featureName}</strong> is a Pro feature. Get full AI remediation guides and white-labeled PDF summaries for <strong>${hostname}</strong>.
+          <strong>${featureName}</strong> is a Pro feature. Get full AI remediation guides, white-labeled PDF summaries, and recurring automated monitoring for <strong>${hostname}</strong>.
         </p>
         <button id="paywallCheckoutBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); margin-bottom:12px; font-weight:700;">
           Unlock Audit for ₹499
@@ -256,6 +281,7 @@ function renderResults(data, targetId = "results") {
   if (!resultsEl) return;
 
   const { raw, hostname, score, grade, previousScan } = data;
+  const isGuest = !currentUser; // Check if user is anonymous for lead magnet
 
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
   const circumference = 2 * Math.PI * 40;
@@ -296,6 +322,7 @@ function renderResults(data, targetId = "results") {
         <div class="grade-ring">
           <svg viewBox="0 0 96 96">
             <circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle>
+            <!-- Radius restored to ensure color rendering -->
             <circle class="grade-ring-fg" cx="48" cy="48" r="40"
               stroke="${gradeHex}"
               stroke-dasharray="${circumference}"
@@ -345,10 +372,23 @@ function renderResults(data, targetId = "results") {
   });
   html += `</div>`;
 
-  // Exposed Files
-  html += `<div class="card">
+  // Exposed Files - GUEST BLURRED LOGIC
+  html += `<div class="card" style="position: relative; overflow: hidden;">
     <strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (!raw.exposedFiles || raw.exposedFiles.length === 0) {
+  
+  if (isGuest && (raw.exposedFiles || []).length > 0) {
+    html += `
+      <div style="filter: blur(6px); pointer-events: none; opacity: 0.6; user-select: none;">
+        <div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div>
+        <div class="result-item"><span style="font-family:var(--font-mono);">/config.bak</span><span class="status-badge status-bad">Exposed</span></div>
+      </div>
+      <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;">
+        <button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">
+          🔒 Sign in to view ${raw.exposedFiles.length} exposed paths
+        </button>
+      </div>
+    `;
+  } else if (!raw.exposedFiles || raw.exposedFiles.length === 0) {
     html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   } else {
     raw.exposedFiles.forEach((f) => {
@@ -370,14 +410,26 @@ function renderResults(data, targetId = "results") {
   }
   html += `</div>`;
 
-  // Action Buttons
-  html += `
-    <div class="action-grid">
-      <button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button>
-      <button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button>
-    </div>
-    <div id="reportContainer" style="margin-top: 16px;"></div>
-  `;
+  // LEAD MAGNET ACTION GATES
+  if (isGuest) {
+    html += `
+      <div class="card" style="text-align: center; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(180deg, rgba(30,27,75,0.3), rgba(15,23,42,0.8)); padding: 32px; margin-top: 24px;">
+        <h3 style="color: #fff; margin-bottom: 8px;">Unlock Advanced Capabilities</h3>
+        <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Sign in for free to access AI Remediation Blueprints, Exportable PDF Reports, and Automated Alerts.</p>
+        <button onclick="showSignInModal()" class="cta-button" style="background: var(--brand-purple); border: none; max-width: 250px; margin: 0 auto;">Sign In with Google</button>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button>
+        <button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button>
+        <button id="monitorBtn" class="cta-button" type="button" style="border-color: rgba(16,185,129,0.3); color: var(--brand-emerald);">🔔 Enable Alerts</button>
+      </div>
+      <div id="monitorFeedback" style="display:none; margin-top: 12px;"></div>
+      <div id="reportContainer" style="margin-top: 16px;"></div>
+    `;
+  }
 
   resultsEl.innerHTML = html;
 
@@ -388,7 +440,7 @@ function renderResults(data, targetId = "results") {
       .replace(/## (.*)/g, '<h3 style="margin-top:20px; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; color:#fff;">$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>')
       .replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.3); color:#38bdf8; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:0.85em;">$1</code>')
-      .replace(/```([\s\S]*?)পদে/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
+      .replace(/```([\s\S]*?)```/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
       .replace(/\n/g, "<br/>");
   }
 
@@ -444,29 +496,73 @@ function renderResults(data, targetId = "results") {
     }
   }
 
-  // Hook PDF Export
-  document.getElementById("exportPdfBtn").addEventListener("click", () => {
-    if (!isDomainUnlocked(hostname)) {
-      return launchRazorpayCheckout(hostname, "Executive PDF Export", () => {
-        const originalTitle = document.title;
-        document.title = `SiteScanner_Audit_${hostname}_${new Date().toISOString().slice(0, 10)}`;
-        window.print();
-        document.title = originalTitle;
-      });
-    }
-    const originalTitle = document.title;
-    document.title = `SiteScanner_Audit_${hostname}_${new Date().toISOString().slice(0, 10)}`;
-    window.print();
-    document.title = originalTitle;
-  });
+  // Re-bind Action Listeners ONLY if not guest
+  if (!isGuest) {
+    document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("exportPdfBtn");
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Executive PDF Export", triggerPdfDownload);
+      await triggerPdfDownload();
 
-  // Hook AI Remediation
-  document.getElementById("explainBtn").addEventListener("click", () => {
-    if (!isDomainUnlocked(hostname)) {
-      return launchRazorpayCheckout(hostname, "AI Remediation Blueprint", executeRemediationRequest);
+      async function triggerPdfDownload() {
+        btn.disabled = true;
+        btn.textContent = "Generating PDF...";
+        try {
+          const res = await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`);
+          if (!res.ok) throw new Error((await res.json()).error || "Download failed");
+          const blob = await res.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = `SiteScanner_Audit_${hostname}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+          alert("PDF Export Error: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "📄 Export Executive PDF";
+        }
+      }
+    });
+
+    document.getElementById("explainBtn")?.addEventListener("click", () => {
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "AI Remediation Blueprint", executeRemediationRequest);
+      executeRemediationRequest();
+    });
+
+    document.getElementById("monitorBtn")?.addEventListener("click", async () => {
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Automated Security Monitoring", setupMonitoring);
+      await setupMonitoring();
+    });
+
+    async function setupMonitoring() {
+      const btn = document.getElementById("monitorBtn");
+      const feedback = document.getElementById("monitorFeedback");
+      btn.disabled = true; btn.textContent = "Configuring...";
+      try {
+        const res = await fetch("/api/monitors", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule monitor.");
+        btn.textContent = "✓ Alerts Active";
+        btn.style.borderColor = "var(--brand-emerald)";
+        feedback.innerHTML = `
+          <div class="card" style="border-color: var(--brand-emerald); background: rgba(16, 185, 129, 0.08); padding: 12px 16px;">
+            <strong style="color: var(--brand-emerald); font-size: 0.9rem;">Automated monitoring enabled</strong>
+            <p style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 4px;">We will check <strong>${hostname}</strong> weekly and email alerts to <strong>${currentUser.email}</strong> if the score regresses.</p>
+          </div>
+        `;
+        feedback.style.display = "block";
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "🔔 Enable Alerts";
+        feedback.innerHTML = `<div class="card" style="border-color: var(--brand-rose); padding: 12px; color: var(--brand-rose); font-size: 0.85rem;">Error: ${err.message}</div>`;
+        feedback.style.display = "block";
+      }
     }
-    executeRemediationRequest();
-  });
+  }
 }
 
 // Check session on script execution
