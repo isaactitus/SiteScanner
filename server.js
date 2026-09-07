@@ -1017,6 +1017,20 @@ ${JSON.stringify({
   }
 });
 
+// ---------- Production Keep-Alive Webhook ----------
+
+app.get("/api/cron/tick", (req, res) => {
+  const { secret } = req.query;
+  const CRON_SECRET = process.env.CRON_SECRET || "sitescanner_default_secret_123";
+
+  if (secret !== CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized cron trigger." });
+  }
+
+  console.log("[Keep-Alive] External tick received. Server is awake.");
+  res.json({ success: true, message: "Server is awake and processing schedules." });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`SiteScanner running on http://localhost:${PORT}`);
