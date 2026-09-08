@@ -637,16 +637,16 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
 
     const port = process.env.PORT || 3000;
     
-    // 1. Navigate to the page (report.html will automatically fetch and render the data)
+    // Navigate to the page
     await page.goto(`http://localhost:${port}/report/${hostname}`, {
       waitUntil: "networkidle0",
       timeout: 30000
     });
 
-    // 2. Wait for the main grade card to appear in the DOM, meaning rendering is 100% complete
+    // Wait for the main grade card to appear in the DOM
     await page.waitForSelector(".hero-grade-card", { timeout: 15000 });
 
-    // 3. Strip out the UI buttons, navigation, and force a clean white background for the PDF
+    // Strip out the UI buttons and force a clean white background
     await page.evaluate(() => {
       const hideSelectors = ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'];
       hideSelectors.forEach(selector => {
@@ -659,7 +659,7 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
       document.documentElement.style.background = '#ffffff';
     });
 
-    // 4. Generate the raw PDF binary
+    // Generate the raw PDF binary
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -668,7 +668,6 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
 
     await browser.close();
 
-    // 5. Explicitly force Express to send a binary Buffer, avoiding string corruption
     res.contentType("application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${hostname}.pdf"`);
     res.send(Buffer.from(pdfBuffer));
@@ -871,6 +870,8 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
     };
 
     await saveLatestScan(hostname, scanResult);
+    
+    // User Autonomy: List publicly if they specifically checked the box
     if (listPublicly === "true") {
       await addToPublicFeed(hostname, score, grade);
     }
@@ -918,6 +919,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
 
     await saveLatestScan(hostname, scanResult);
 
+    // User Autonomy: List publicly if they specifically checked the box
     if (listPublicly) {
       await addToPublicFeed(hostname, score, grade);
     }
