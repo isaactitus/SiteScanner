@@ -206,7 +206,7 @@ async function checkHttpsEnforcement(hostname) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": BROWSER_USER_AGENT },
-        timeout: 5000,
+        signal: AbortSignal.timeout(5000),
       });
 
       const isRedirect = [301, 302, 303, 307, 308].includes(res.status);
@@ -250,7 +250,7 @@ async function checkMalwareBlocklist(targetUrl) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        timeout: 5000,
+        signal: AbortSignal.timeout(5000),
       }
     );
     const data = await res.json();
@@ -273,7 +273,7 @@ async function checkCookieSecurity(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     let rawCookies = [];
     if (typeof res.headers.raw === "function") {
@@ -318,7 +318,7 @@ async function checkCORS(targetUrl) {
         Origin: "https://sitescanner-cors-test.example.com",
         "User-Agent": BROWSER_USER_AGENT,
       },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
 
     const allowOrigin = res.headers.get("access-control-allow-origin");
@@ -353,7 +353,7 @@ async function checkTrackers(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     const html = await res.text();
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
@@ -369,7 +369,7 @@ async function checkMixedContent(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     const html = await res.text();
     const isHttps = targetUrl.startsWith("https://");
@@ -400,7 +400,7 @@ async function checkSecurityHeaders(targetUrl) {
       method: "GET",
       redirect: "manual",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
       currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
@@ -426,6 +426,7 @@ async function checkSecurityHeaders(targetUrl) {
 
 async function checkTLS(hostname) {
   return new Promise((resolve) => {
+    // tls.connect natively supports timeouts, so this was always safe
     const socket = tls.connect(
       { host: hostname, port: 443, servername: hostname, timeout: 8000 },
       () => {
@@ -468,8 +469,8 @@ async function checkExposedFiles(baseUrl) {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
-        timeout: 3500,
         headers: { "User-Agent": BROWSER_USER_AGENT },
+        signal: AbortSignal.timeout(3500),
       });
 
       if (res.status !== 200) {
@@ -871,7 +872,6 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
 
     await saveLatestScan(hostname, scanResult);
     
-    // User Autonomy: List publicly if they specifically checked the box
     if (listPublicly === "true") {
       await addToPublicFeed(hostname, score, grade);
     }
@@ -919,7 +919,6 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
 
     await saveLatestScan(hostname, scanResult);
 
-    // User Autonomy: List publicly if they specifically checked the box
     if (listPublicly) {
       await addToPublicFeed(hostname, score, grade);
     }
