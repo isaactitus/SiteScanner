@@ -565,5 +565,5 @@ function renderResults(data, targetId = "results") {
   }
 }
 
-// Check session on script execution
-checkAuthSession();
+// Check session on script execution and store the promise globally
+window.authReady = checkAuthSession();

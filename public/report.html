@@ -137,6 +137,10 @@
             throw new Error("No previous scan found for this domain.");
           }
           const reportData = await res.json();
+          
+          // Wait for the auth check to finish before drawing the UI
+          if (window.authReady) await window.authReady;
+
           renderResults(reportData);
         } catch (err) {
           resultsEl.innerHTML = `
