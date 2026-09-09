@@ -20,6 +20,7 @@ import puppeteer from "puppeteer";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
 import {
+  db,
   recordScan,
   saveLatestScan,
   getLatestScan,
@@ -27,8 +28,6 @@ import {
   getPublicFeed,
   upsertUser,
   getUserProfile,
-  grantDomainEntitlement,
-  checkDomainEntitlement,
   addMonitor,
   getUserMonitors,
 } from "./history-store.js";
@@ -62,7 +61,9 @@ app.use(async (req, res, next) => {
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    // Fetch fresh user profile to ensure is_pro status is accurate
+    const profile = await getUserProfile(decoded.id);
+    req.user = profile ? { ...decoded, is_pro: profile.is_pro } : decoded;
   } catch {
     req.user = null;
   }
@@ -122,20 +123,14 @@ app.post("/api/auth/logout", (req, res) => {
 
 // ---------- Rate Limiting ----------
 
+// Global PRO implementation: Free users max 5 scans per 24 hours. PRO users skip.
 const scanLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Scan limit reached. You can perform up to 10 scans per 10 minutes." },
-});
-
-const aiLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
+  windowMs: 24 * 60 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "AI remediation quota reached (5 requests per 10 mins). Try again shortly." },
+  skip: (req) => req.user && req.user.is_pro, 
+  message: { error: "Free tier limit reached (5 scans per 24 hours). Upgrade to PRO for unlimited target auditing." },
 });
 
 // ---------- Input Normalization & SSRF Guard ----------
@@ -426,7 +421,6 @@ async function checkSecurityHeaders(targetUrl) {
 
 async function checkTLS(hostname) {
   return new Promise((resolve) => {
-    // tls.connect natively supports timeouts, so this was always safe
     const socket = tls.connect(
       { host: hostname, port: 443, servername: hostname, timeout: 8000 },
       () => {
@@ -549,11 +543,10 @@ export async function runScanPipeline(hostname) {
   };
 }
 
-// ---------- Razorpay Monetization Endpoints ----------
+// ---------- Razorpay Monetization Endpoints (GLOBAL PRO UPGRADE) ----------
 
 app.post("/api/create-order", async (req, res) => {
-  const { hostname } = req.body;
-  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
+  if (!req.user) return res.status(401).json({ error: "Authentication required to upgrade." });
   if (!razorpay) return res.status(500).json({ error: "Razorpay credentials not configured." });
 
   try {
@@ -561,7 +554,7 @@ app.post("/api/create-order", async (req, res) => {
       amount: 49900,
       currency: "INR",
       receipt: `rcpt_${Date.now().toString().slice(-8)}`,
-      notes: { hostname, userId: req.user?.id || "guest" },
+      notes: { userId: req.user.id, upgrade: "global_pro" },
     };
 
     const order = await razorpay.orders.create(options);
@@ -577,7 +570,7 @@ app.post("/api/create-order", async (req, res) => {
 });
 
 app.post("/api/verify-payment", async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, hostname } = req.body;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
     return res.status(400).json({ success: false, error: "Missing signature attributes." });
@@ -588,10 +581,14 @@ app.post("/api/verify-payment", async (req, res) => {
   const generatedSignature = hmac.digest("hex");
 
   if (generatedSignature === razorpay_signature) {
-    if (req.user?.id && hostname) {
-      await grantDomainEntitlement(req.user.id, hostname, razorpay_order_id);
+    if (req.user?.id) {
+      // Upgrade user to PRO in database
+      await db.execute({
+        sql: `UPDATE users SET is_pro = 1 WHERE id = ?`,
+        args: [req.user.id],
+      });
     }
-    res.json({ success: true, hostname });
+    res.json({ success: true });
   } else {
     res.status(400).json({ success: false, error: "Invalid payment signature." });
   }
@@ -601,13 +598,14 @@ app.post("/api/verify-payment", async (req, res) => {
 
 app.post("/api/monitors", async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Please log in to manage scheduled monitoring." });
-  const { hostname, interval, threshold } = req.body;
-  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
-
-  const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
-  if (!hasEntitlement) {
+  
+  // Enforce PRO requirement for monitors
+  if (!req.user.is_pro) {
     return res.status(403).json({ error: "Pro unlock required to enable automated scheduled scans." });
   }
+
+  const { hostname, interval, threshold } = req.body;
+  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
 
   await addMonitor({ userId: req.user.id, hostname, interval, threshold });
   res.json({ success: true });
@@ -619,10 +617,33 @@ app.get("/api/monitors", async (req, res) => {
   res.json(monitors);
 });
 
+// New Endpoint: Dashboard Toggle
+app.patch("/api/monitors/:id/toggle", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  
+  const { id } = req.params;
+  const { isActive } = req.body;
+  
+  try {
+    await db.execute({
+      sql: `UPDATE monitors SET is_active = ? WHERE id = ? AND user_id = ?`,
+      args: [isActive ? 1 : 0, id, req.user.id],
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to toggle monitor." });
+  }
+});
+
 // ---------- Download PDF Endpoint (Puppeteer) ----------
 
 app.get("/api/download-pdf/:hostname", async (req, res) => {
   const { hostname } = req.params;
+  
+  if (!req.user || !req.user.is_pro) {
+    return res.status(403).json({ error: "Pro plan required to export executive PDFs." });
+  }
+
   let browser = null;
 
   try {
@@ -638,16 +659,13 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
 
     const port = process.env.PORT || 3000;
     
-    // Navigate to the page
     await page.goto(`http://localhost:${port}/report/${hostname}`, {
       waitUntil: "networkidle0",
       timeout: 30000
     });
 
-    // Wait for the main grade card to appear in the DOM
     await page.waitForSelector(".hero-grade-card", { timeout: 15000 });
 
-    // Strip out the UI buttons and force a clean white background
     await page.evaluate(() => {
       const hideSelectors = ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'];
       hideSelectors.forEach(selector => {
@@ -660,7 +678,6 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
       document.documentElement.style.background = '#ffffff';
     });
 
-    // Generate the raw PDF binary
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -931,27 +948,30 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
 
 // ---------- Plain-English & Gemini Remediation ----------
 
-app.post("/api/explain", aiLimiter, async (req, res) => {
+app.post("/api/explain", async (req, res) => {
   const { raw, hostname } = req.body;
 
   if (!raw || !hostname) {
     return res.status(400).json({ error: "Missing scan data." });
   }
 
-  if (!req.user) {
-    return res.status(401).json({ error: "Authentication required. Please sign in to access AI blueprints." });
-  }
-
-  const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
-  if (!hasEntitlement) {
-    return res.status(403).json({ error: "Pro entitlement required. Please unlock this domain." });
-  }
-
   try {
     const ruleBasedReport = generateReport(raw, hostname);
+    
+    // Check if user is fully authorized for AI
+    const isPro = req.user && req.user.is_pro;
+
+    // Free users only get the rule-based standard blueprint
+    if (!isPro) {
+      return res.json({ 
+        ruleBasedReport, 
+        aiReport: null, 
+        aiError: "Pro upgrade required to generate AI Remediation Blueprints." 
+      });
+    }
+
     let aiReport = null;
     let aiError = null;
-
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {

@@ -45,7 +45,7 @@ function updateNavAuthUI() {
   if (!container) return;
 
   if (currentUser) {
-    const isPro = currentUser.is_pro || (currentUser.unlockedDomains && currentUser.unlockedDomains.length > 0);
+    const isPro = currentUser.is_pro;
     const badge = isPro ? "PRO" : "FREE";
     const badgeColor = isPro ? "var(--brand-emerald)" : "var(--brand-purple)";
 
@@ -56,8 +56,8 @@ function updateNavAuthUI() {
         <span style="font-size: 0.65rem; padding: 2px 6px; border-radius: 9999px; background: rgba(139,92,246,0.2); color: ${badgeColor}; border: 1px solid ${badgeColor}; font-weight: 700;">${badge}</span>
       </div>
       <div id="userDropdown" style="display: none; position: absolute; right: 0; top: 44px; background: #0b0f19; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; z-index: 10000; box-shadow: 0 10px 25px rgba(0,0,0,0.5); min-width: 200px;">
-        <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 6px; word-break: break-all;">${currentUser.email}</div>
-        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">Unlocked Targets: <strong>${currentUser.unlockedDomains?.length || 0}</strong></div>
+        <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 12px; word-break: break-all;">${currentUser.email}</div>
+        <a href="/dashboard.html" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 12px; padding: 6px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; border: 1px solid rgba(255,255,255,0.1);">Dashboard & Alerts</a>
         <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px;" />
         <button id="logoutBtn" style="background: transparent; border: none; color: var(--brand-rose); font-size: 0.85rem; cursor: pointer; padding: 4px 0; width: 100%; text-align: left;">Sign Out</button>
       </div>
@@ -77,7 +77,7 @@ function updateNavAuthUI() {
     document.getElementById("logoutBtn").onclick = async () => {
       await fetch("/api/auth/logout", { method: "POST" });
       currentUser = null;
-      // Clear lingering unlock cache from local browser
+      // Clear lingering legacy local storage cache
       Object.keys(localStorage)
         .filter((k) => k.startsWith("unlocked_"))
         .forEach((k) => localStorage.removeItem(k));
@@ -147,14 +147,8 @@ async function handleGoogleResponse(response) {
   }
 }
 
-function isDomainUnlocked(hostname) {
-  if (!hostname || !currentUser) return false;
-  if (currentUser.is_pro) return true;
-  if (currentUser.unlockedDomains?.includes(hostname.toLowerCase())) return true;
-  return false;
-}
-
-function launchRazorpayCheckout(hostname, featureName, onSuccess) {
+// Make checkout globally accessible for inline onclick handlers
+window.launchRazorpayCheckout = function(featureName, onSuccess) {
   if (!currentUser) {
     showSignInModal();
     return;
@@ -174,12 +168,12 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
         <div style="width:48px; height:48px; border-radius:50%; background:rgba(139,92,246,0.15); color:var(--brand-purple); display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:1.4rem;">
           🔒
         </div>
-        <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Unlock Pro Feature</h3>
+        <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Upgrade to Pro</h3>
         <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">
-          <strong>${featureName}</strong> is a Pro feature. Get full AI remediation guides, white-labeled PDF summaries, and recurring automated monitoring for <strong>${hostname}</strong>.
+          <strong>${featureName}</strong> is a Pro feature. Upgrade now to unlock unlimited daily scans, full AI remediation guides, white-labeled PDF summaries, and recurring automated monitoring.
         </p>
         <button id="paywallCheckoutBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); margin-bottom:12px; font-weight:700;">
-          Unlock Audit for ₹499
+          Upgrade to Pro for ₹499
         </button>
         <button id="paywallCloseBtn" type="button" style="background:transparent; border:none; color:var(--text-tertiary); cursor:pointer; font-size:0.85rem; padding:6px 12px;">
           Dismiss
@@ -203,7 +197,7 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
       const res = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostname }),
+        body: JSON.stringify({}), // Hostname removed for global upgrade
       });
       const order = await res.json();
 
@@ -216,7 +210,7 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
         amount: order.amount,
         currency: order.currency,
         name: "SiteScanner Pro",
-        description: `Security Audit Unlock for ${hostname}`,
+        description: `Global Pro Account Upgrade`,
         order_id: order.orderId,
         handler: async function (response) {
           btn.textContent = "Verifying Payment...";
@@ -228,34 +222,30 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
-                hostname,
               }),
             });
             const verifyData = await verifyRes.json();
 
             if (verifyData.success) {
-              localStorage.setItem(`unlocked_${hostname}`, "true");
-              if (currentUser && !currentUser.unlockedDomains.includes(hostname.toLowerCase())) {
-                currentUser.unlockedDomains.push(hostname.toLowerCase());
-              }
+              currentUser.is_pro = true; // Update local state globally
               document.getElementById("paywallModal")?.remove();
               updateNavAuthUI();
               if (typeof onSuccess === "function") onSuccess();
             } else {
               alert("Payment verification failed: " + (verifyData.error || "Unknown error"));
               btn.disabled = false;
-              btn.textContent = "Unlock Audit for ₹499";
+              btn.textContent = "Upgrade to Pro for ₹499";
             }
           } catch (err) {
             alert("Verification network error: " + err.message);
             btn.disabled = false;
-            btn.textContent = "Unlock Audit for ₹499";
+            btn.textContent = "Upgrade to Pro for ₹499";
           }
         },
         modal: {
           ondismiss: function () {
             btn.disabled = false;
-            btn.textContent = "Unlock Audit for ₹499";
+            btn.textContent = "Upgrade to Pro for ₹499";
           },
         },
         prefill: {
@@ -282,6 +272,7 @@ function renderResults(data, targetId = "results") {
 
   const { raw, hostname, score, grade, previousScan } = data;
   const isGuest = !currentUser; // Check if user is anonymous for lead magnet
+  const isPro = currentUser && currentUser.is_pro;
 
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
   const circumference = 2 * Math.PI * 40;
@@ -313,8 +304,6 @@ function renderResults(data, targetId = "results") {
   if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) warning++; else if (raw.mixedContent?.checked) passed++;
   if (raw.malware?.checked && raw.malware.flagged) critical++; else if (raw.malware?.checked) passed++;
 
-  const unlocked = isDomainUnlocked(hostname);
-
   let html = `
     <!-- Top Hero Metric Card -->
     <div class="card hero-grade-card">
@@ -333,7 +322,7 @@ function renderResults(data, targetId = "results") {
         <div>
           <div class="hero-score-title" style="display:flex; align-items:center; gap:8px;">
             <span>${hostname}</span>
-            ${unlocked ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}
+            ${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}
           </div>
           <div class="hero-score-delta">${deltaHtml}</div>
         </div>
@@ -446,7 +435,7 @@ function renderResults(data, targetId = "results") {
 
   async function executeRemediationRequest() {
     const reportContainer = document.getElementById("reportContainer");
-    reportContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Querying Gemini security intelligence engine...</div>';
+    reportContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Compiling security intelligence blueprint...</div>';
 
     try {
       const res = await fetch("/api/explain", {
@@ -478,10 +467,12 @@ function renderResults(data, targetId = "results") {
           </div>
         `;
       } else if (resData.aiError) {
+        // Render an inline paywall asking them to upgrade to access the AI Blueprint
         reportsHtml += `
-          <div class="card" style="border: 1px solid var(--brand-amber); padding: 16px;">
-            <strong style="color: var(--brand-amber);">AI Blueprint Notice:</strong>
-            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">${resData.aiError}</p>
+          <div class="card" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center; background: linear-gradient(180deg, rgba(30,27,75,0.15), transparent);">
+            <strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 20px;">${resData.aiError}</p>
+            <button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button>
           </div>
         `;
       }
@@ -500,7 +491,7 @@ function renderResults(data, targetId = "results") {
   if (!isGuest) {
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       const btn = document.getElementById("exportPdfBtn");
-      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Executive PDF Export", triggerPdfDownload);
+      if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", triggerPdfDownload);
       await triggerPdfDownload();
 
       async function triggerPdfDownload() {
@@ -527,13 +518,13 @@ function renderResults(data, targetId = "results") {
       }
     });
 
+    // Free users can click the explain button now!
     document.getElementById("explainBtn")?.addEventListener("click", () => {
-      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "AI Remediation Blueprint", executeRemediationRequest);
       executeRemediationRequest();
     });
 
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
-      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Automated Security Monitoring", setupMonitoring);
+      if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Security Monitoring", setupMonitoring);
       await setupMonitoring();
     });
 

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteScanner — Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- Main Navigation Bar -->
+    <nav class="app-nav">
+      <a href="/" class="nav-brand">
+        <span class="nav-brand-badge"></span>
+        SiteScanner
+      </a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="/" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;">Run New Scan</a>
+        <div id="authNavContainer" style="position: relative;"></div>
+      </div>
+    </nav>
+
+    <header style="margin-bottom: 40px;">
+      <h1 style="font-size: 2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Your Dashboard</h1>
+      <p style="color: var(--text-secondary);">Manage your security audits and automated email alerts.</p>
+    </header>
+
+    <main>
+      <div class="card" style="padding: 0; overflow: hidden;">
+        <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="font-size: 1.05rem; color: #fff;">Active Monitored Targets</h3>
+          <span style="font-size: 0.8rem; color: var(--text-tertiary);">Weekly Scans</span>
+        </div>
+        
+        <div id="monitorsList">
+          <div style="padding: 48px; text-align: center; color: var(--text-tertiary);">
+            Loading your monitors...
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/render.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Wait for session to initialize
+      if (window.authReady) await window.authReady;
+
+      if (!currentUser) {
+        window.location.href = "/";
+        return;
+      }
+
+      loadMonitors();
+
+      async function loadMonitors() {
+        const listEl = document.getElementById("monitorsList");
+        try {
+          const res = await fetch("/api/monitors");
+          const monitors = await res.json();
+
+          if (monitors.length === 0) {
+            listEl.innerHTML = `
+              <div style="padding: 48px; text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 12px;">📭</div>
+                <strong style="color: #fff; display: block; margin-bottom: 8px;">No targets monitored yet</strong>
+                <p style="color: var(--text-secondary); font-size: 0.9rem;">Run a deep scan on a domain and click 'Enable Alerts' to see it here.</p>
+              </div>`;
+            return;
+          }
+
+          listEl.innerHTML = monitors.map(m => `
+            <div style="padding: 20px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center; background: ${m.is_active ? 'transparent' : 'rgba(0,0,0,0.2)'};">
+              
+              <div>
+                <strong style="font-size: 1.1rem; color: ${m.is_active ? '#fff' : 'var(--text-tertiary)'}; display: block; margin-bottom: 4px;">${m.hostname}</strong>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 12px;">
+                  <span>Last Score: <strong style="color: ${m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}">${m.last_score || 'Pending'}</strong></span>
+                  <span>Threshold: <strong style="color: #fff;">Drop below ${m.alert_threshold}</strong></span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 16px;">
+                <a href="/report/${encodeURIComponent(m.hostname)}" class="cta-button" style="padding: 6px 12px; font-size: 0.8rem; background: transparent;">View Report</a>
+                
+                <label style="display: flex; align-items: center; cursor: pointer; position: relative;">
+                  <input type="checkbox" class="toggle-monitor-btn" data-id="${m.id}" ${m.is_active ? 'checked' : ''} style="opacity: 0; position: absolute; width: 0; height: 0;">
+                  <div style="width: 44px; height: 24px; background: ${m.is_active ? 'var(--brand-emerald)' : 'var(--surface-border)'}; border-radius: 9999px; position: relative; transition: background 0.3s;">
+                    <div style="width: 18px; height: 18px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: ${m.is_active ? '23px' : '3px'}; transition: left 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
+                  </div>
+                </label>
+              </div>
+
+            </div>
+          `).join("");
+
+          // Attach toggle listeners
+          document.querySelectorAll('.toggle-monitor-btn').forEach(input => {
+            input.addEventListener('change', async (e) => {
+              const id = e.target.getAttribute('data-id');
+              const isActive = e.target.checked;
+              
+              // Optimistic UI update handled by the CSS inline styles, just trigger backend
+              await fetch(`/api/monitors/${id}/toggle`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isActive })
+              });
+              
+              // Reload to refresh styles smoothly
+              loadMonitors();
+            });
+          });
+
+        } catch (err) {
+          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
