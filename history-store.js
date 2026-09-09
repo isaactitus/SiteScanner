@@ -1,5 +1,6 @@
 // history-store.js
 import { createClient } from "@libsql/client";
+import crypto from "crypto";
 
 export const db = createClient({
   url: process.env.TURSO_DATABASE_URL || "file:local.db",
@@ -35,14 +36,10 @@ export async function initDb() {
     )
   `);
 
-  // Safely migrate existing legacy tables if created with older column variants
   try {
     await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
-  } catch {
-    // Column already exists or fresh table
-  }
+  } catch {}
 
-  // Auth & Entitlement Tables
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -66,7 +63,6 @@ export async function initDb() {
     )
   `);
 
-  // Scheduled Monitoring Table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS monitors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +75,19 @@ export async function initDb() {
       is_active INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, hostname)
+    )
+  `);
+
+  // NEW: Active Verification Table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS domain_verifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      token TEXT NOT NULL,
+      is_verified INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, hostname)
     )
   `);
@@ -215,12 +224,10 @@ export async function getPublicFeed() {
     const res = await db.execute(`SELECT hostname, score, grade FROM public_feed ORDER BY id DESC LIMIT 10`);
     return res.rows;
   } catch (err) {
-    console.error("Public feed query fallback:", err.message);
     return [];
   }
 }
 
-// Scheduled Monitor Helpers
 export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) {
   const nextRun = Date.now();
   await db.execute({
@@ -240,4 +247,33 @@ export async function getUserMonitors(userId) {
     args: [userId],
   });
   return res.rows;
+}
+
+// --- NEW: DNS Verification Helpers ---
+export async function getOrGenerateVerificationToken(userId, hostname) {
+  const cleanHost = hostname.toLowerCase();
+  
+  const existing = await db.execute({
+    sql: `SELECT token, is_verified FROM domain_verifications WHERE user_id = ? AND hostname = ?`,
+    args: [userId, cleanHost],
+  });
+
+  if (existing.rows.length > 0) {
+    return { token: existing.rows[0].token, isVerified: Boolean(existing.rows[0].is_verified) };
+  }
+
+  const newToken = `sitescanner-verification=${crypto.randomBytes(16).toString("hex")}`;
+  await db.execute({
+    sql: `INSERT INTO domain_verifications (user_id, hostname, token) VALUES (?, ?, ?)`,
+    args: [userId, cleanHost, newToken],
+  });
+
+  return { token: newToken, isVerified: false };
+}
+
+export async function markDomainVerified(userId, hostname) {
+  await db.execute({
+    sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`,
+    args: [userId, hostname.toLowerCase()],
+  });
 }

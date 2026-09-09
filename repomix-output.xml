@@ -42,124 +42,24 @@ The content is organized as follows:
 <directory_structure>
 public/
   app.js
-  email-service.js
   index.html
   render.js
   report.html
   robots.txt
-  scanner-cron.js
   style.css
 .gitignore
+email-service.js
 fix-code-generator.js
 history-store.js
 package.json
 README.md
 report-generator.js
+scanner-cron.js
 server.js
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="public/email-service.js">
-// email-service.js
-import { Resend } from 'resend';
-// If using CommonJS (require), use: const { Resend } = require('resend');
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-export async function sendAuditAlert({ to, url, currentScore, previousScore, issues }) {
-  const scoreDiff = currentScore - (previousScore ?? currentScore);
-  const diffDisplay = scoreDiff < 0 ? `${scoreDiff} pts` : `+${scoreDiff} pts`;
-
-  return await resend.emails.send({
-    from: 'SiteScanner Alerts <alerts@yourdomain.com>',
-    to,
-    subject: `[Alert] Performance report for ${url} (Score: ${currentScore})`,
-    html: `
-      <h2>SiteScanner Automated Audit Report</h2>
-      <p>Target: <strong>${url}</strong></p>
-      <p>Current Score: <strong>${currentScore}/100</strong> (${diffDisplay})</p>
-      ${
-        currentScore < 80
-          ? `<p style="color: #e11d48;"><strong>Warning:</strong> Site health dropped below your threshold.</p>`
-          : `<p style="color: #16a34a;">Your site is maintaining healthy metrics.</p>`
-      }
-      <h3>Top Findings:</h3>
-      <ul>
-        ${issues.map((issue) => `<li>${issue}</li>`).join('')}
-      </ul>
-      <p><a href="${process.env.APP_URL || ''}/dashboard">View Full Scan Breakdown</a></p>
-    `,
-  });
-}
-</file>
-
-<file path="public/scanner-cron.js">
-// scanner-cron.js
-import cron from 'node-cron';
-import { sendAuditAlert } from './email-service.js';
-
-// If your Turso client is initialized inside server.js or a separate db file, import it:
-// import { db } from './your-turso-file.js';
-
-// Import your existing scanner/analyzer function (adjust to match your file name, e.g., report-generator.js)
-import { generateReport } from './report-generator.js'; 
-
-export function initCronJobs(db) {
-  cron.schedule('*/15 * * * *', async () => {
-    const now = Date.now();
-
-    try {
-      const { rows: dueMonitors } = await db.execute({
-        sql: `SELECT m.*, u.email 
-              FROM monitors m 
-              JOIN users u ON m.user_id = u.id 
-              WHERE m.is_active = 1 AND m.next_run_at <= ? 
-              LIMIT 10`,
-        args: [now],
-      });
-
-      if (!dueMonitors || dueMonitors.length === 0) return;
-
-      for (const monitor of dueMonitors) {
-        try {
-          // Run your existing scan/report generator logic
-          const result = await generateReport(monitor.target_url);
-
-          const droppedBelowThreshold = result.overallScore < monitor.alert_threshold;
-          const scoreRegressed = monitor.last_score && (monitor.last_score - result.overallScore) >= 10;
-
-          if (droppedBelowThreshold || scoreRegressed) {
-            await sendAuditAlert({
-              to: monitor.email,
-              url: monitor.target_url,
-              currentScore: result.overallScore,
-              previousScore: monitor.last_score,
-              issues: result.topIssues || ['Performance regression detected'],
-            });
-          }
-
-          const intervalMs = monitor.check_interval === 'daily'
-            ? 24 * 60 * 60 * 1000
-            : 7 * 24 * 60 * 60 * 1000;
-
-          await db.execute({
-            sql: `UPDATE monitors 
-                  SET last_score = ?, next_run_at = ?, updated_at = ? 
-                  WHERE id = ?`,
-            args: [result.overallScore, now + intervalMs, now, monitor.id],
-          });
-        } catch (scanErr) {
-          console.error(`Failed scan for monitor ${monitor.id}:`, scanErr);
-        }
-      }
-    } catch (err) {
-      console.error('Scheduler execution error:', err);
-    }
-  });
-}
-</file>
 
 <file path="public/app.js">
 document.addEventListener('DOMContentLoaded', () => {
@@ -337,101 +237,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </file>
 
-<file path="public/report.html">
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <!-- Cross-Platform Viewport Optimization -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>SiteScanner | Passive Security Auditing</title>
-  
-  <link rel="stylesheet" href="/style.css">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-</head>
-<body>
-  <!-- Navigation & Auth Gate -->
-  <nav style="display: flex; justify-content: space-between; padding: 16px 24px; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05);">
-    <div style="font-weight: 700; color: #fff; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-      <div style="width: 12px; height: 12px; background: var(--brand-cyan); border-radius: 50%; box-shadow: 0 0 10px var(--brand-cyan);"></div>
-      SiteScanner
-    </div>
-    <div id="authNavContainer" style="position: relative;"></div>
-  </nav>
-
-  <main class="container" style="padding: 40px 16px;">
-    <!-- Hero Header -->
-    <div style="text-align: center; margin-bottom: 40px;">
-      <h1 style="font-size: 2.5rem; color: #fff; margin-bottom: 16px; font-weight: 800; letter-spacing: -1px;">Passive Security Auditing.</h1>
-      <p style="color: var(--text-secondary); font-size: 1.05rem; line-height: 1.5; max-width: 500px; margin: 0 auto;">
-        Production-grade security health checks, real-time threat intelligence, and tailored remediation guidance.
-      </p>
-    </div>
-
-    <!-- Scan Input Panel -->
-    <div class="card" style="margin-bottom: 24px;">
-      <div style="display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 16px; padding-bottom: 8px; gap: 16px;">
-        <button class="tab-btn active">Quick Check</button>
-        <button class="tab-btn">Deep Technical Scan</button>
-      </div>
-      
-      <form id="scanForm" style="display: flex; flex-direction: column; gap: 16px;">
-        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-          <input type="url" id="targetUrl" placeholder="google.com" required style="flex: 1; min-width: 250px;" />
-          <button type="submit" class="cta-button" id="scanBtn">Run Deep Scan</button>
-        </div>
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
-          <input type="checkbox" id="authConfirm" required />
-          I confirm authorization to scan this domain
-        </label>
-      </form>
-    </div>
-
-    <!-- Recent Audits Feed -->
-    <div id="recentAudits" style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 16px; margin-bottom: 24px; font-size: 0.85rem; color: var(--text-tertiary); align-items: center; white-space: nowrap;">
-      <span>Recent Audits:</span>
-      <span style="background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 999px;">google.com <strong style="color: var(--brand-emerald)">C (72)</strong></span>
-    </div>
-
-    <!-- Results Container (Injected via render.js) -->
-    <div id="results"></div>
-  </main>
-
-  <script src="/render.js"></script>
-  <script>
-    // Frontend execution script
-    document.getElementById('scanForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const url = document.getElementById('targetUrl').value;
-      const confirmed = document.getElementById('authConfirm').checked;
-      const btn = document.getElementById('scanBtn');
-      
-      btn.disabled = true;
-      btn.textContent = 'Scanning...';
-      document.getElementById('results').innerHTML = '<div class="card" style="text-align:center; padding: 40px; color: var(--text-secondary);">Initializing advanced heuristics...</div>';
-      
-      try {
-        const res = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, ownershipConfirmed: confirmed, listPublicly: true })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        renderResults(data);
-      } catch (err) {
-        document.getElementById('results').innerHTML = `<div class="card" style="border-color: var(--brand-rose); color: var(--brand-rose);">Scan Error: ${err.message}</div>`;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Run Deep Scan';
-      }
-    });
-  </script>
-</body>
-</html>
-</file>
-
 <file path="public/robots.txt">
 User-agent: *
 Allow: /
@@ -441,6 +246,65 @@ Allow: /
 node_modules/
 .env
 data/
+</file>
+
+<file path="email-service.js">
+// email-service.js
+import { Resend } from "resend";
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
+
+export async function sendAuditAlert({ to, hostname, currentScore, previousScore, issues }) {
+  if (!resend) {
+    console.warn("[EmailService] RESEND_API_KEY is not configured. Skipping alert.");
+    return null;
+  }
+
+  const scoreDiff = currentScore - (previousScore ?? currentScore);
+  const diffDisplay = scoreDiff > 0 ? `+${scoreDiff} pts` : `${scoreDiff} pts`;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SiteScanner <alerts@yourdomain.com>";
+  const appUrl = process.env.APP_URL || "https://sitescanner.onrender.com";
+
+  return await resend.emails.send({
+    from: fromEmail,
+    to,
+    subject: `[Alert] Security Audit Report for ${hostname} (Grade: ${currentScore}/100)`,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #0f172a; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0284c7; margin-top: 0; font-size: 20px;">SiteScanner Automated Audit</h2>
+        <p style="font-size: 15px; color: #475569;">Target domain: <strong>${hostname}</strong></p>
+        
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin: 20px 0;">
+          <p style="font-size: 18px; margin: 0 0 6px; font-weight: 700;">
+            Current Score: ${currentScore}/100 
+            <span style="font-size: 14px; color: ${scoreDiff < 0 ? '#ef4444' : '#10b981'}; font-weight: 600;">(${diffDisplay})</span>
+          </p>
+          ${
+            currentScore < 70
+              ? `<p style="color: #ef4444; font-size: 14px; margin: 0; font-weight: 600;">⚠️ Security score is below your designated health threshold.</p>`
+              : `<p style="color: #10b981; font-size: 14px; margin: 0; font-weight: 600;">✓ Baseline health checks are passing.</p>`
+          }
+        </div>
+
+        <h3 style="font-size: 15px; margin-top: 24px; color: #0f172a;">Key Audit Findings:</h3>
+        <ul style="line-height: 1.6; color: #334155; font-size: 14px; padding-left: 20px;">
+          ${(issues && issues.length > 0 ? issues : ["Review full report for detailed breakdown."])
+            .map((issue) => `<li>${issue}</li>`)
+            .join("")}
+        </ul>
+
+        <div style="margin-top: 28px;">
+          <a href="${appUrl}/report/${encodeURIComponent(hostname)}" 
+             style="background: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">
+            View Detailed Audit
+          </a>
+        </div>
+      </div>
+    `,
+  });
+}
 </file>
 
 <file path="fix-code-generator.js">
@@ -636,6 +500,328 @@ Same pattern as StarredList — deploy to Vercel or Render. Note: this is an Exp
 
 ## Legal note
 This tool is for scanning domains you own or have explicit written permission to test. Scanning third-party systems without authorization may violate computer misuse laws in your jurisdiction, regardless of intent.
+</file>
+
+<file path="scanner-cron.js">
+// scanner-cron.js
+import cron from "node-cron";
+import { db, recordScan, saveLatestScan } from "./history-store.js";
+import { calculateScore, scoreToGrade } from "./report-generator.js";
+import { sendAuditAlert } from "./email-service.js";
+
+export function initCronJobs(runScanPipeline) {
+  // Dispatches every 15 minutes
+  cron.schedule("*/15 * * * *", async () => {
+    const now = Date.now();
+
+    try {
+      const { rows: dueMonitors } = await db.execute({
+        sql: `SELECT m.*, u.email 
+              FROM monitors m 
+              JOIN users u ON m.user_id = u.id 
+              WHERE m.is_active = 1 AND m.next_run_at <= ? 
+              LIMIT 5`,
+        args: [now],
+      });
+
+      if (!dueMonitors || dueMonitors.length === 0) return;
+
+      for (const monitor of dueMonitors) {
+        try {
+          const raw = await runScanPipeline(monitor.hostname);
+          const { score } = calculateScore(raw, monitor.hostname);
+          const grade = scoreToGrade(score);
+
+          const { previous, history } = await recordScan(monitor.hostname, score, grade);
+          await saveLatestScan(monitor.hostname, {
+            hostname: monitor.hostname,
+            scannedAt: new Date().toISOString(),
+            raw,
+            score,
+            grade,
+            previousScan: previous,
+            history,
+          });
+
+          const droppedBelow = score < monitor.alert_threshold;
+          const regressed = monitor.last_score !== null && (monitor.last_score - score >= 10);
+
+          if (droppedBelow || regressed) {
+            const issues = [];
+            if (!raw.tls?.valid) issues.push("SSL Certificate is invalid or unreachable.");
+            if (raw.exposedFiles?.length > 0) issues.push(`${raw.exposedFiles.length} sensitive file(s) exposed publicly.`);
+            if (raw.headers?.missing?.length > 0) issues.push(`Missing core headers: ${raw.headers.missing.join(", ")}`);
+            if (raw.cors?.dangerousCombo) issues.push("Dangerous CORS configuration detected.");
+
+            await sendAuditAlert({
+              to: monitor.email,
+              hostname: monitor.hostname,
+              currentScore: score,
+              previousScore: monitor.last_score,
+              issues,
+            });
+          }
+
+          const intervalMs = monitor.check_interval === "daily"
+            ? 24 * 60 * 60 * 1000
+            : 7 * 24 * 60 * 60 * 1000;
+
+          await db.execute({
+            sql: `UPDATE monitors 
+                  SET last_score = ?, next_run_at = ?, is_active = 1 
+                  WHERE id = ?`,
+            args: [score, now + intervalMs, monitor.id],
+          });
+        } catch (scanErr) {
+          console.error(`[Cron] Execution error for ${monitor.hostname}:`, scanErr.message);
+        }
+      }
+    } catch (err) {
+      console.error("[Cron] Polling tick error:", err.message);
+    }
+  });
+}
+</file>
+
+<file path="public/report.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteScanner — Security Audit Report</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Main Navigation Bar -->
+    <nav class="app-nav">
+      <a href="/" class="nav-brand">
+        <span class="nav-brand-badge"></span>
+        SiteScanner
+      </a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <div class="nav-status">
+          <span class="nav-status-dot"></span> Engine Online
+        </div>
+        <div id="authNavContainer" style="position: relative;">
+          <button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero Header -->
+    <header class="hero">
+      <h1 class="hero-title">Passive Security Auditing.</h1>
+      <p class="hero-subtitle">Production-grade security health checks, real-time threat intelligence, and tailored remediation guidance.</p>
+    </header>
+
+    <main>
+      <!-- Search & Rescan Dock -->
+      <section class="scan-card">
+        <div class="tab-group">
+          <button id="tabQuick" class="tab-btn" type="button">Quick Check</button>
+          <button id="tabFull" class="tab-btn active" type="button">Deep Technical Scan</button>
+        </div>
+
+        <form id="scanForm">
+          <div class="input-group">
+            <input 
+              id="targetUrl" 
+              type="text" 
+              class="scan-input" 
+              placeholder="example.com" 
+              spellcheck="false" 
+              autocomplete="off" 
+              required 
+            />
+            <button id="submitScanBtn" type="submit" class="scan-btn">Scan Target</button>
+          </div>
+
+          <div class="scan-options">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ownershipConfirmed" checked required />
+              <span>I confirm authorization to scan this domain</span>
+            </label>
+          </div>
+        </form>
+      </section>
+
+      <!-- Quick Check Result Dropdown -->
+      <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
+
+      <!-- Recent Scans Live Ticker -->
+      <div class="feed-card" id="feedCard">
+        <span class="feed-title">Recent Audits:</span>
+        <div class="feed-items" id="recentList">
+          <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
+        </div>
+      </div>
+
+      <!-- Audit Results Container -->
+      <section id="results" class="results-area">
+        <div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);">
+          <div style="display: inline-block; width: 24px; height: 24px; border: 2px solid var(--brand-cyan); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+          <p style="font-size: 0.95rem;">Retrieving security audit findings...</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <style>
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
+  <script src="/render.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      let scanMode = "full"; // Default to full scan on the report page
+      
+      // Load recent scans below the search bar
+      window.loadRecentFeed();
+
+      // 1. Extract hostname from current route (/report/google.com -> google.com)
+      const pathParts = window.location.pathname.split("/report/");
+      const targetDomain = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : "";
+
+      const input = document.getElementById("targetUrl");
+      const resultsEl = document.getElementById("results");
+      const scanForm = document.getElementById("scanForm");
+      const submitBtn = document.getElementById("submitScanBtn");
+      
+      const tabQuick = document.getElementById("tabQuick");
+      const tabFull = document.getElementById("tabFull");
+      const quickCheckResult = document.getElementById("quickCheckResult");
+
+      // --- Tab Switching Logic ---
+      tabQuick.addEventListener("click", () => {
+        scanMode = "quick";
+        tabQuick.classList.add("active");
+        tabFull.classList.remove("active");
+        submitBtn.textContent = "Quick Check";
+      });
+
+      tabFull.addEventListener("click", () => {
+        scanMode = "full";
+        tabFull.classList.add("active");
+        tabQuick.classList.remove("active");
+        submitBtn.textContent = "Scan Target";
+      });
+
+      // --- Initial Page Load Logic ---
+      if (targetDomain) {
+        input.value = targetDomain;
+        document.title = `SiteScanner Audit — ${targetDomain}`;
+
+        try {
+          const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`);
+          if (!res.ok) {
+            throw new Error("No previous scan found for this domain.");
+          }
+          const reportData = await res.json();
+          renderResults(reportData);
+        } catch (err) {
+          resultsEl.innerHTML = `
+            <div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">
+              <strong style="color: var(--brand-amber); display: block; margin-bottom: 8px;">Audit Not Loaded</strong>
+              <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">${err.message}</p>
+              <button id="runInitialScanBtn" class="cta-button" style="max-width: 220px; margin: 0 auto;">Run Deep Scan Now</button>
+            </div>
+          `;
+          document.getElementById("runInitialScanBtn")?.addEventListener("click", () => {
+            scanMode = "full";
+            tabFull.click();
+            scanForm.dispatchEvent(new Event("submit"));
+          });
+        }
+      }
+
+      // --- Form Submission Logic (Handles both modes) ---
+      scanForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, "");
+        if (!url) return;
+
+        submitBtn.disabled = true;
+        quickCheckResult.style.display = "none";
+
+        if (scanMode === "quick") {
+          submitBtn.textContent = "Analyzing...";
+          try {
+            const res = await fetch("/api/quickcheck", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url, ownershipConfirmed: true })
+            });
+            const data = await res.json();
+
+            if (data.error) throw new Error(data.error);
+
+            const bannerBg = data.status === 'safe' 
+              ? 'rgba(16, 185, 129, 0.15)' 
+              : data.status === 'warning' 
+              ? 'rgba(245, 158, 11, 0.15)' 
+              : 'rgba(244, 63, 94, 0.15)';
+            const bannerBorder = data.status === 'safe' 
+              ? 'var(--brand-emerald)' 
+              : data.status === 'warning' 
+              ? 'var(--brand-amber)' 
+              : 'var(--brand-rose)';
+            const bannerText = data.status === 'safe'
+              ? '✓ Clean — Domain is safe to browse'
+              : data.status === 'warning'
+              ? '⚠️ Safe to browse, but needs developer attention'
+              : '🚨 Critical security alerts detected';
+
+            quickCheckResult.innerHTML = `
+              <div class="card" style="background:${bannerBg}; border-color:${bannerBorder};">
+                <strong style="display:block; margin-bottom: 8px; font-size: 1.05rem;">${bannerText}</strong>
+                <ul style="margin-left: 20px; font-size: 0.9rem; color: var(--text-secondary);">
+                  ${(data.reasons || []).map(r => `<li>${r}</li>`).join('')}
+                </ul>
+              </div>
+            `;
+            quickCheckResult.style.display = 'block';
+          } catch (err) {
+            quickCheckResult.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`;
+            quickCheckResult.style.display = 'block';
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Quick Check";
+          }
+        } else {
+          // Deep Scan Mode
+          submitBtn.textContent = "Scanning...";
+          resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px; color: var(--text-secondary);">Running comprehensive test suite...</div>';
+
+          try {
+            const res = await fetch("/api/scan", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true })
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            history.replaceState(null, "", `/report/${encodeURIComponent(url)}`);
+            renderResults(data);
+            window.loadRecentFeed(); // Refresh the feed after a scan
+          } catch (err) {
+            resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-rose); color: var(--brand-rose);">Scan Error: ${err.message}</div>`;
+          } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Scan Target";
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
 </file>
 
 <file path="public/style.css">
@@ -1541,9 +1727,10 @@ export { generateReport, calculateScore, detectPlatform, scoreToGrade, isSharedH
 </file>
 
 <file path="history-store.js">
+// history-store.js
 import { createClient } from "@libsql/client";
 
-const db = createClient({
+export const db = createClient({
   url: process.env.TURSO_DATABASE_URL || "file:local.db",
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
@@ -1603,6 +1790,23 @@ export async function initDb() {
       hostname TEXT NOT NULL,
       order_id TEXT,
       unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, hostname)
+    )
+  `);
+
+  // Scheduled Monitoring Table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS monitors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      check_interval TEXT DEFAULT 'weekly',
+      alert_threshold INTEGER DEFAULT 70,
+      next_run_at INTEGER NOT NULL,
+      last_score INTEGER,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id),
       UNIQUE(user_id, hostname)
     )
@@ -1685,7 +1889,6 @@ export async function recordScan(hostname, score, grade) {
     args: [hostname],
   });
   
-  // Explicitly passing CURRENT_TIMESTAMP to satisfy legacy NOT NULL schema constraints
   await db.execute({
     sql: `INSERT INTO scan_history (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
     args: [hostname, score, grade],
@@ -1717,20 +1920,17 @@ export async function getLatestScan(hostname) {
 
 export async function addToPublicFeed(hostname, score, grade) {
   try {
-    // Attempt 1: Legacy schema column name
     await db.execute({
       sql: `INSERT INTO public_feed (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       args: [hostname, score, grade],
     });
   } catch {
     try {
-      // Attempt 2: Modern schema column name
       await db.execute({
         sql: `INSERT INTO public_feed (hostname, score, grade, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
         args: [hostname, score, grade],
       });
     } catch {
-      // Attempt 3: Let database defaults populate timestamp
       await db.execute({
         sql: `INSERT INTO public_feed (hostname, score, grade) VALUES (?, ?, ?)`,
         args: [hostname, score, grade],
@@ -1747,6 +1947,28 @@ export async function getPublicFeed() {
     console.error("Public feed query fallback:", err.message);
     return [];
   }
+}
+
+// Scheduled Monitor Helpers
+export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) {
+  const nextRun = Date.now();
+  await db.execute({
+    sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_id, hostname) DO UPDATE SET
+            check_interval = excluded.check_interval,
+            alert_threshold = excluded.alert_threshold,
+            is_active = 1`,
+    args: [userId, hostname.toLowerCase(), interval, threshold, nextRun],
+  });
+}
+
+export async function getUserMonitors(userId) {
+  const res = await db.execute({
+    sql: `SELECT * FROM monitors WHERE user_id = ? ORDER BY id DESC`,
+    args: [userId],
+  });
+  return res.rows;
 }
 </file>
 
@@ -1770,8 +1992,11 @@ export async function getPublicFeed() {
     "google-auth-library": "^11.0.2",
     "ipaddr.js": "^2.5.0",
     "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.6.0",
     "node-fetch": "^3.3.2",
+    "puppeteer": "^25.10.0",
     "razorpay": "^2.9.8",
+    "resend": "^6.26.0",
     "stripe": "^22.6.1"
   }
 }
@@ -1838,7 +2063,7 @@ export async function getPublicFeed() {
               <span>I confirm authorization to scan this domain</span>
             </label>
             <label class="checkbox-label" id="publicFeedOption" style="display: none;">
-              <input type="checkbox" id="listPublicly" checked />
+              <input type="checkbox" id="listPublicly">
               <span>List result in public recent scans</span>
             </label>
           </div>
@@ -1870,8 +2095,34 @@ export async function getPublicFeed() {
 </file>
 
 <file path="public/render.js">
+// public/render.js
 let currentUser = null;
 const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.googleusercontent.com";
+
+// Add this global helper so all pages can load the feed
+window.loadRecentFeed = async function() {
+  const recentListEl = document.getElementById('recentList');
+  if (!recentListEl) return;
+  try {
+    const res = await fetch('/api/recent');
+    const items = await res.json();
+    if (!items || items.length === 0) {
+      recentListEl.innerHTML = '<span style="color:var(--text-tertiary); font-size:0.8rem;">No recent scans</span>';
+      return;
+    }
+    recentListEl.innerHTML = items.map(item => {
+      const gradeColor = item.score >= 75 ? 'var(--brand-emerald)' : item.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+      return `
+        <a href="/report/${encodeURIComponent(item.hostname)}" class="feed-chip">
+          <span>${item.hostname}</span>
+          <span class="feed-chip-grade" style="color:${gradeColor}">${item.grade} (${item.score})</span>
+        </a>
+      `;
+    }).join('');
+  } catch {
+    recentListEl.innerHTML = '<span style="color:var(--text-tertiary); font-size:0.8rem;">Feed offline</span>';
+  }
+};
 
 // Check session on load
 async function checkAuthSession() {
@@ -1994,7 +2245,6 @@ async function handleGoogleResponse(response) {
 }
 
 function isDomainUnlocked(hostname) {
-  // If not logged in, domain is strictly locked
   if (!hostname || !currentUser) return false;
   if (currentUser.is_pro) return true;
   if (currentUser.unlockedDomains?.includes(hostname.toLowerCase())) return true;
@@ -2023,7 +2273,7 @@ function launchRazorpayCheckout(hostname, featureName, onSuccess) {
         </div>
         <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Unlock Pro Feature</h3>
         <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">
-          <strong>${featureName}</strong> is a Pro feature. Get full AI remediation guides and white-labeled PDF summaries for <strong>${hostname}</strong>.
+          <strong>${featureName}</strong> is a Pro feature. Get full AI remediation guides, white-labeled PDF summaries, and recurring automated monitoring for <strong>${hostname}</strong>.
         </p>
         <button id="paywallCheckoutBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); margin-bottom:12px; font-weight:700;">
           Unlock Audit for ₹499
@@ -2128,6 +2378,7 @@ function renderResults(data, targetId = "results") {
   if (!resultsEl) return;
 
   const { raw, hostname, score, grade, previousScan } = data;
+  const isGuest = !currentUser; // Check if user is anonymous for lead magnet
 
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
   const circumference = 2 * Math.PI * 40;
@@ -2168,6 +2419,7 @@ function renderResults(data, targetId = "results") {
         <div class="grade-ring">
           <svg viewBox="0 0 96 96">
             <circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle>
+            <!-- Radius restored to ensure color rendering -->
             <circle class="grade-ring-fg" cx="48" cy="48" r="40"
               stroke="${gradeHex}"
               stroke-dasharray="${circumference}"
@@ -2217,10 +2469,23 @@ function renderResults(data, targetId = "results") {
   });
   html += `</div>`;
 
-  // Exposed Files
-  html += `<div class="card">
+  // Exposed Files - GUEST BLURRED LOGIC
+  html += `<div class="card" style="position: relative; overflow: hidden;">
     <strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (!raw.exposedFiles || raw.exposedFiles.length === 0) {
+  
+  if (isGuest && (raw.exposedFiles || []).length > 0) {
+    html += `
+      <div style="filter: blur(6px); pointer-events: none; opacity: 0.6; user-select: none;">
+        <div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div>
+        <div class="result-item"><span style="font-family:var(--font-mono);">/config.bak</span><span class="status-badge status-bad">Exposed</span></div>
+      </div>
+      <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;">
+        <button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">
+          🔒 Sign in to view ${raw.exposedFiles.length} exposed paths
+        </button>
+      </div>
+    `;
+  } else if (!raw.exposedFiles || raw.exposedFiles.length === 0) {
     html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   } else {
     raw.exposedFiles.forEach((f) => {
@@ -2242,14 +2507,26 @@ function renderResults(data, targetId = "results") {
   }
   html += `</div>`;
 
-  // Action Buttons
-  html += `
-    <div class="action-grid">
-      <button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button>
-      <button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button>
-    </div>
-    <div id="reportContainer" style="margin-top: 16px;"></div>
-  `;
+  // LEAD MAGNET ACTION GATES
+  if (isGuest) {
+    html += `
+      <div class="card" style="text-align: center; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(180deg, rgba(30,27,75,0.3), rgba(15,23,42,0.8)); padding: 32px; margin-top: 24px;">
+        <h3 style="color: #fff; margin-bottom: 8px;">Unlock Advanced Capabilities</h3>
+        <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Sign in for free to access AI Remediation Blueprints, Exportable PDF Reports, and Automated Alerts.</p>
+        <button onclick="showSignInModal()" class="cta-button" style="background: var(--brand-purple); border: none; max-width: 250px; margin: 0 auto;">Sign In with Google</button>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button>
+        <button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button>
+        <button id="monitorBtn" class="cta-button" type="button" style="border-color: rgba(16,185,129,0.3); color: var(--brand-emerald);">🔔 Enable Alerts</button>
+      </div>
+      <div id="monitorFeedback" style="display:none; margin-top: 12px;"></div>
+      <div id="reportContainer" style="margin-top: 16px;"></div>
+    `;
+  }
 
   resultsEl.innerHTML = html;
 
@@ -2260,7 +2537,7 @@ function renderResults(data, targetId = "results") {
       .replace(/## (.*)/g, '<h3 style="margin-top:20px; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; color:#fff;">$1</h3>')
       .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#fff;">$1</strong>')
       .replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.3); color:#38bdf8; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); font-size:0.85em;">$1</code>')
-      .replace(/```([\s\S]*?)পদে/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
+      .replace(/```([\s\S]*?)```/g, '<pre style="background:#070a12; padding:14px; border-radius:8px; overflow-x:auto; border:1px solid rgba(255,255,255,0.08); margin: 12px 0;"><code style="color:#e2e8f0; font-family:var(--font-mono); font-size:0.85em;">$1</code></pre>')
       .replace(/\n/g, "<br/>");
   }
 
@@ -2316,29 +2593,73 @@ function renderResults(data, targetId = "results") {
     }
   }
 
-  // Hook PDF Export
-  document.getElementById("exportPdfBtn").addEventListener("click", () => {
-    if (!isDomainUnlocked(hostname)) {
-      return launchRazorpayCheckout(hostname, "Executive PDF Export", () => {
-        const originalTitle = document.title;
-        document.title = `SiteScanner_Audit_${hostname}_${new Date().toISOString().slice(0, 10)}`;
-        window.print();
-        document.title = originalTitle;
-      });
-    }
-    const originalTitle = document.title;
-    document.title = `SiteScanner_Audit_${hostname}_${new Date().toISOString().slice(0, 10)}`;
-    window.print();
-    document.title = originalTitle;
-  });
+  // Re-bind Action Listeners ONLY if not guest
+  if (!isGuest) {
+    document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("exportPdfBtn");
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Executive PDF Export", triggerPdfDownload);
+      await triggerPdfDownload();
 
-  // Hook AI Remediation
-  document.getElementById("explainBtn").addEventListener("click", () => {
-    if (!isDomainUnlocked(hostname)) {
-      return launchRazorpayCheckout(hostname, "AI Remediation Blueprint", executeRemediationRequest);
+      async function triggerPdfDownload() {
+        btn.disabled = true;
+        btn.textContent = "Generating PDF...";
+        try {
+          const res = await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`);
+          if (!res.ok) throw new Error((await res.json()).error || "Download failed");
+          const blob = await res.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = `SiteScanner_Audit_${hostname}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+          alert("PDF Export Error: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "📄 Export Executive PDF";
+        }
+      }
+    });
+
+    document.getElementById("explainBtn")?.addEventListener("click", () => {
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "AI Remediation Blueprint", executeRemediationRequest);
+      executeRemediationRequest();
+    });
+
+    document.getElementById("monitorBtn")?.addEventListener("click", async () => {
+      if (!isDomainUnlocked(hostname)) return launchRazorpayCheckout(hostname, "Automated Security Monitoring", setupMonitoring);
+      await setupMonitoring();
+    });
+
+    async function setupMonitoring() {
+      const btn = document.getElementById("monitorBtn");
+      const feedback = document.getElementById("monitorFeedback");
+      btn.disabled = true; btn.textContent = "Configuring...";
+      try {
+        const res = await fetch("/api/monitors", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to schedule monitor.");
+        btn.textContent = "✓ Alerts Active";
+        btn.style.borderColor = "var(--brand-emerald)";
+        feedback.innerHTML = `
+          <div class="card" style="border-color: var(--brand-emerald); background: rgba(16, 185, 129, 0.08); padding: 12px 16px;">
+            <strong style="color: var(--brand-emerald); font-size: 0.9rem;">Automated monitoring enabled</strong>
+            <p style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 4px;">We will check <strong>${hostname}</strong> weekly and email alerts to <strong>${currentUser.email}</strong> if the score regresses.</p>
+          </div>
+        `;
+        feedback.style.display = "block";
+      } catch (err) {
+        btn.disabled = false; btn.textContent = "🔔 Enable Alerts";
+        feedback.innerHTML = `<div class="card" style="border-color: var(--brand-rose); padding: 12px; color: var(--brand-rose); font-size: 0.85rem;">Error: ${err.message}</div>`;
+        feedback.style.display = "block";
+      }
     }
-    executeRemediationRequest();
-  });
+  }
 }
 
 // Check session on script execution
@@ -2363,6 +2684,7 @@ import Razorpay from "razorpay";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
+import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
@@ -2376,7 +2698,10 @@ import {
   getUserProfile,
   grantDomainEntitlement,
   checkDomainEntitlement,
+  addMonitor,
+  getUserMonitors,
 } from "./history-store.js";
+import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -2550,7 +2875,7 @@ async function checkHttpsEnforcement(hostname) {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": BROWSER_USER_AGENT },
-        timeout: 5000,
+        signal: AbortSignal.timeout(5000),
       });
 
       const isRedirect = [301, 302, 303, 307, 308].includes(res.status);
@@ -2594,7 +2919,7 @@ async function checkMalwareBlocklist(targetUrl) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        timeout: 5000,
+        signal: AbortSignal.timeout(5000),
       }
     );
     const data = await res.json();
@@ -2617,7 +2942,7 @@ async function checkCookieSecurity(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     let rawCookies = [];
     if (typeof res.headers.raw === "function") {
@@ -2662,7 +2987,7 @@ async function checkCORS(targetUrl) {
         Origin: "https://sitescanner-cors-test.example.com",
         "User-Agent": BROWSER_USER_AGENT,
       },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
 
     const allowOrigin = res.headers.get("access-control-allow-origin");
@@ -2697,7 +3022,7 @@ async function checkTrackers(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     const html = await res.text();
     const found = TRACKER_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
@@ -2713,7 +3038,7 @@ async function checkMixedContent(targetUrl) {
       method: "GET",
       redirect: "follow",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     const html = await res.text();
     const isHttps = targetUrl.startsWith("https://");
@@ -2744,7 +3069,7 @@ async function checkSecurityHeaders(targetUrl) {
       method: "GET",
       redirect: "manual",
       headers: { "User-Agent": BROWSER_USER_AGENT },
-      timeout: 6000,
+      signal: AbortSignal.timeout(6000),
     });
     if ([301, 302, 303, 307, 308].includes(res.status) && res.headers.get("location")) {
       currentUrl = new URL(res.headers.get("location"), currentUrl).toString();
@@ -2770,6 +3095,7 @@ async function checkSecurityHeaders(targetUrl) {
 
 async function checkTLS(hostname) {
   return new Promise((resolve) => {
+    // tls.connect natively supports timeouts, so this was always safe
     const socket = tls.connect(
       { host: hostname, port: 443, servername: hostname, timeout: 8000 },
       () => {
@@ -2812,8 +3138,8 @@ async function checkExposedFiles(baseUrl) {
       const res = await fetch(new URL(path, baseUrl).toString(), {
         method: "GET",
         redirect: "manual",
-        timeout: 3500,
         headers: { "User-Agent": BROWSER_USER_AGENT },
+        signal: AbortSignal.timeout(3500),
       });
 
       if (res.status !== 200) {
@@ -2863,6 +3189,35 @@ async function checkEmailSpoofingProtection(hostname) {
   return result;
 }
 
+// Reusable Complete Audit Pipeline
+export async function runScanPipeline(hostname) {
+  const targetHttpsUrl = `https://${hostname}`;
+  const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] =
+    await Promise.allSettled([
+      checkSecurityHeaders(targetHttpsUrl),
+      checkTLS(hostname),
+      checkExposedFiles(targetHttpsUrl),
+      checkEmailSpoofingProtection(hostname),
+      checkCookieSecurity(targetHttpsUrl),
+      checkCORS(targetHttpsUrl),
+      checkMixedContent(targetHttpsUrl),
+      checkMalwareBlocklist(targetHttpsUrl),
+      checkTrackers(targetHttpsUrl),
+    ]);
+
+  return {
+    headers: headers.status === "fulfilled" ? headers.value : { error: headers.reason?.message },
+    tls: tlsInfo.status === "fulfilled" ? tlsInfo.value : { error: tlsInfo.reason?.message },
+    exposedFiles: exposedFiles.status === "fulfilled" ? exposedFiles.value : [],
+    emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: emailAuth.reason?.message },
+    cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
+    cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
+    mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
+    malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
+    trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
+  };
+}
+
 // ---------- Razorpay Monetization Endpoints ----------
 
 app.post("/api/create-order", async (req, res) => {
@@ -2908,6 +3263,90 @@ app.post("/api/verify-payment", async (req, res) => {
     res.json({ success: true, hostname });
   } else {
     res.status(400).json({ success: false, error: "Invalid payment signature." });
+  }
+});
+
+// ---------- Scheduled Monitors Endpoints ----------
+
+app.post("/api/monitors", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Please log in to manage scheduled monitoring." });
+  const { hostname, interval, threshold } = req.body;
+  if (!hostname) return res.status(400).json({ error: "Hostname is required." });
+
+  const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
+  if (!hasEntitlement) {
+    return res.status(403).json({ error: "Pro unlock required to enable automated scheduled scans." });
+  }
+
+  await addMonitor({ userId: req.user.id, hostname, interval, threshold });
+  res.json({ success: true });
+});
+
+app.get("/api/monitors", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  const monitors = await getUserMonitors(req.user.id);
+  res.json(monitors);
+});
+
+// ---------- Download PDF Endpoint (Puppeteer) ----------
+
+app.get("/api/download-pdf/:hostname", async (req, res) => {
+  const { hostname } = req.params;
+  let browser = null;
+
+  try {
+    console.log(`[PDF] Starting PDF generation for ${hostname}...`);
+    
+    browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 1600 });
+
+    const port = process.env.PORT || 3000;
+    
+    // Navigate to the page
+    await page.goto(`http://localhost:${port}/report/${hostname}`, {
+      waitUntil: "networkidle0",
+      timeout: 30000
+    });
+
+    // Wait for the main grade card to appear in the DOM
+    await page.waitForSelector(".hero-grade-card", { timeout: 15000 });
+
+    // Strip out the UI buttons and force a clean white background
+    await page.evaluate(() => {
+      const hideSelectors = ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'];
+      hideSelectors.forEach(selector => {
+        const el = document.querySelector(selector);
+        if (el) el.style.display = 'none';
+      });
+      
+      document.body.style.background = '#ffffff';
+      document.body.style.backgroundImage = 'none';
+      document.documentElement.style.background = '#ffffff';
+    });
+
+    // Generate the raw PDF binary
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" },
+    });
+
+    await browser.close();
+
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${hostname}.pdf"`);
+    res.send(Buffer.from(pdfBuffer));
+    
+    console.log(`[PDF] Successfully sent PDF for ${hostname}`);
+  } catch (err) {
+    if (browser) await browser.close();
+    console.error("[PDF Generation Error]:", err);
+    res.status(500).json({ error: "Failed to generate executive PDF: " + err.message });
   }
 });
 
@@ -3101,6 +3540,7 @@ app.get("/api/scan-stream", scanLimiter, async (req, res) => {
     };
 
     await saveLatestScan(hostname, scanResult);
+    
     if (listPublicly === "true") {
       await addToPublicFeed(hostname, score, grade);
     }
@@ -3130,33 +3570,8 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 
-  const targetHttpsUrl = `https://${hostname}`;
-
   try {
-    const [headers, tlsInfo, exposedFiles, emailAuth, cookies, cors, mixedContent, malware, trackers] = await Promise.allSettled([
-      checkSecurityHeaders(targetHttpsUrl),
-      checkTLS(hostname),
-      checkExposedFiles(targetHttpsUrl),
-      checkEmailSpoofingProtection(hostname),
-      checkCookieSecurity(targetHttpsUrl),
-      checkCORS(targetHttpsUrl),
-      checkMixedContent(targetHttpsUrl),
-      checkMalwareBlocklist(targetHttpsUrl),
-      checkTrackers(targetHttpsUrl),
-    ]);
-
-    const raw = {
-      headers: headers.status === "fulfilled" ? headers.value : { error: headers.reason?.message },
-      tls: tlsInfo.status === "fulfilled" ? tlsInfo.value : { error: tlsInfo.reason?.message },
-      exposedFiles: exposedFiles.status === "fulfilled" ? exposedFiles.value : [],
-      emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: emailAuth.reason?.message },
-      cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
-      cors: cors.status === "fulfilled" ? cors.value : { allowOrigin: null, wildcardOpen: false, reflectsAnyOrigin: false, dangerousCombo: false },
-      mixedContent: mixedContent.status === "fulfilled" ? mixedContent.value : { checked: false, insecureResources: [] },
-      malware: malware.status === "fulfilled" ? malware.value : { checked: false, reason: "error" },
-      trackers: trackers.status === "fulfilled" ? trackers.value : { checked: false, trackers: [] },
-    };
-
+    const raw = await runScanPipeline(hostname);
     const { score } = calculateScore(raw, hostname);
     const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
@@ -3192,12 +3607,10 @@ app.post("/api/explain", aiLimiter, async (req, res) => {
     return res.status(400).json({ error: "Missing scan data." });
   }
 
-  // Strict paywall gate: Require sign-in
   if (!req.user) {
     return res.status(401).json({ error: "Authentication required. Please sign in to access AI blueprints." });
   }
 
-  // Strict paywall gate: Require domain entitlement or global pro
   const hasEntitlement = await checkDomainEntitlement(req.user.id, hostname);
   if (!hasEntitlement) {
     return res.status(403).json({ error: "Pro entitlement required. Please unlock this domain." });
@@ -3274,8 +3687,25 @@ ${JSON.stringify({
   }
 });
 
+// ---------- Production Keep-Alive Webhook ----------
+
+app.get("/api/cron/tick", (req, res) => {
+  const { secret } = req.query;
+  const CRON_SECRET = process.env.CRON_SECRET || "sitescanner_default_secret_123";
+
+  if (secret !== CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized cron trigger." });
+  }
+
+  console.log("[Keep-Alive] External tick received. Server is awake.");
+  res.json({ success: true, message: "Server is awake and processing schedules." });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SiteScanner running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`SiteScanner running on http://localhost:${PORT}`);
+  initCronJobs(runScanPipeline);
+});
 </file>
 
 </files>
