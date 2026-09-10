@@ -218,7 +218,7 @@ export async function runScanPipeline(hostname) {
     emailAuth: emailAuth.status === "fulfilled" ? emailAuth.value : { error: "failed" },
     cookies: cookies.status === "fulfilled" ? cookies.value : { hasCookies: false, cookies: [] },
     cors: cors.status === "fulfilled" ? cors.value : { wildcardOpen: false, dangerousCombo: false },
-    activeDastStatus: "Not executed (Requires DNS verification)"
+    activeDastStatus: "Not executed (Requires Verification)"
   };
 }
 
@@ -241,7 +241,7 @@ app.post("/api/verify-payment", async (req, res) => {
   res.status(400).json({ success: false, error: "Invalid payment signature." });
 });
 
-// ---------- DNS Active Verification Endpoints ----------
+// ---------- Dual Verification Endpoints (DNS & HTTP) ----------
 app.post("/api/verification/generate", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro account required." });
   try {
@@ -252,18 +252,64 @@ app.post("/api/verification/generate", async (req, res) => {
 app.post("/api/verification/check", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized." });
   const { hostname } = req.body;
+  
   try {
     const dbData = await getOrGenerateVerificationToken(req.user.id, hostname);
     if (dbData.isVerified) return res.json({ success: true, message: "Already verified." });
 
-    const resolver = new Resolver(); resolver.setServers(["8.8.8.8", "1.1.1.1"]);
-    const records = await resolver.resolveTxt(hostname);
-    if (records.map(r => r.join("")).includes(dbData.token)) {
-      await markDomainVerified(req.user.id, hostname);
-      return res.json({ success: true, message: "Verified!" });
+    let isVerified = false;
+
+    // --- 1. Check DNS TXT Record ---
+    const resolver = new Resolver(); 
+    resolver.setServers(["8.8.8.8", "1.1.1.1"]);
+    try {
+      const records = await resolver.resolveTxt(hostname);
+      if (records.map(r => r.join("")).includes(dbData.token)) {
+        isVerified = true;
+      }
+    } catch (dnsErr) {
+      // Safely ignore ENODATA (no TXT records) and ENOTFOUND (domain missing)
+      if (dnsErr.code !== "ENODATA" && dnsErr.code !== "ENOTFOUND") {
+        console.error("[DNS Error]", dnsErr.message);
+      }
     }
-    res.status(400).json({ success: false, error: "TXT record not found. DNS propagation takes time." });
-  } catch (err) { res.status(400).json({ success: false, error: "Failed to query DNS." }); }
+
+    // --- 2. Check HTTP File Upload if DNS failed (For Vercel/Render) ---
+    if (!isVerified) {
+      try {
+        const url = `https://${hostname}/.well-known/sitescanner-verification.txt`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        
+        const httpRes = await fetch(url, { 
+          signal: controller.signal, 
+          headers: { "User-Agent": BROWSER_USER_AGENT }
+        });
+        clearTimeout(timeout);
+
+        if (httpRes.ok) {
+          const text = await httpRes.text();
+          if (text.trim() === dbData.token) {
+            isVerified = true;
+          }
+        }
+      } catch (httpErr) {
+        // Silently fail if file does not exist or host is unreachable
+      }
+    }
+
+    if (isVerified) {
+      await markDomainVerified(req.user.id, hostname);
+      return res.json({ success: true, message: "Domain verified successfully!" });
+    }
+
+    res.status(400).json({ 
+      success: false, 
+      error: "Verification failed. Neither the DNS TXT record nor the HTTP verification file was found. Ensure your changes have been deployed or propagated." 
+    });
+  } catch (err) { 
+    res.status(500).json({ success: false, error: "System error occurred during verification." }); 
+  }
 });
 
 // ---------- Scheduled Monitors Endpoints ----------
@@ -346,11 +392,6 @@ app.post("/api/quickcheck", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get("/api/scan-stream", scanLimiter, async (req, res) => {
-  // Logic remains from the previous version, streaming events...
-  // (We'll keep SSE available for backward compatibility if needed, but UI uses /scan now)
-});
-
 app.post("/api/scan", scanLimiter, async (req, res) => {
   const { url, ownershipConfirmed, listPublicly } = req.body;
   if (!ownershipConfirmed) return res.status(400).json({ error: "You must confirm authorization." });
@@ -375,7 +416,7 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     await validatePublicHostname(hostname);
     
     const dbData = await getOrGenerateVerificationToken(req.user.id, hostname);
-    if (!dbData.isVerified) return res.status(403).json({ error: "Domain ownership not verified via DNS." });
+    if (!dbData.isVerified) return res.status(403).json({ error: "Domain ownership not verified via DNS or HTTP." });
 
     const raw = await runScanPipeline(hostname);
     // STUB: Active engine exploits would run here and append to 'raw'

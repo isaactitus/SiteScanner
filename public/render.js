@@ -176,7 +176,7 @@ window.launchRazorpayCheckout = function(featureName, onSuccess) {
   };
 }
 
-// --- NEW: DNS Verification Modal ---
+// --- DUAL DNS/HTTP Verification Modal ---
 window.showDnsVerificationModal = async function(hostname, onSuccess) {
   const existing = document.getElementById("dnsModal");
   if (existing) existing.remove();
@@ -188,22 +188,32 @@ window.showDnsVerificationModal = async function(hostname, onSuccess) {
     });
     tokenData = await res.json();
     if (tokenData.isVerified) { return onSuccess(); } 
-  } catch (err) { return alert("Error fetching DNS token: " + err.message); }
+  } catch (err) { return alert("Error fetching verification token: " + err.message); }
 
   const modalHtml = `
-    <div id="dnsModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
-      <div class="card" style="max-width:500px; width:100%; border:1px solid rgba(16,185,129,0.4); text-align:left; padding:32px;">
+    <div id="dnsModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; overflow-y: auto;">
+      <div class="card" style="max-width:560px; width:100%; border:1px solid rgba(16,185,129,0.4); text-align:left; padding:32px; margin-top: auto; margin-bottom: auto;">
         <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:12px;">Active Audit Authorization</h3>
         <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:20px;">
-          Because Active DAST scanning fires live exploits against a server, you must prove ownership of <strong>${hostname}</strong> by adding this TXT record to your DNS provider.
+          To perform active DAST scanning, you must prove ownership of <strong>${hostname}</strong> using one of the two methods below.
         </p>
-        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
+
+        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 16px;">
+          <strong style="color: #fff; font-size: 0.95rem; margin-bottom: 8px; display: block;">Method 1: DNS TXT Record (Best for Custom Domains)</strong>
           <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Type</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px;">TXT</div></div>
           <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Name / Host</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px;">@ <span style="color:var(--text-tertiary); font-size:0.8rem;">(or ${hostname})</span></div></div>
           <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Value / Content</span><div style="background: rgba(16,185,129,0.1); color:var(--brand-emerald); padding: 8px; border-radius: 4px; font-family:var(--font-mono); margin-top:4px; word-break: break-all; border: 1px solid rgba(16,185,129,0.2);">${tokenData.token}</div></div>
         </div>
+
+        <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
+          <strong style="color: #fff; font-size: 0.95rem; margin-bottom: 8px; display: block;">Method 2: HTTP File (Best for Vercel/Netlify/Render)</strong>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 12px;">Create a text file accessible on your server at this exact path:</p>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Path</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px; word-break: break-all;">https://${hostname}/.well-known/sitescanner-verification.txt</div></div>
+          <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Content</span><div style="background: rgba(16,185,129,0.1); color:var(--brand-emerald); padding: 8px; border-radius: 4px; font-family:var(--font-mono); margin-top:4px; word-break: break-all; border: 1px solid rgba(16,185,129,0.2);">${tokenData.token}</div></div>
+        </div>
+
         <div style="display:flex; gap: 12px;">
-          <button id="verifyDnsBtn" class="cta-button" style="background:var(--brand-emerald); border-color:var(--brand-emerald); flex:1; font-weight:700;">Verify DNS Record</button>
+          <button id="verifyDnsBtn" class="cta-button" style="background:var(--brand-emerald); border-color:var(--brand-emerald); flex:1; font-weight:700;">Check Verification</button>
           <button id="closeDnsModalBtn" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
         </div>
         <div id="dnsErrorMsg" style="color: var(--brand-rose); font-size: 0.85rem; margin-top: 12px; text-align: center; display: none;"></div>
@@ -212,16 +222,17 @@ window.showDnsVerificationModal = async function(hostname, onSuccess) {
   `;
   document.body.insertAdjacentHTML("beforeend", modalHtml);
   document.getElementById("closeDnsModalBtn").onclick = () => document.getElementById("dnsModal").remove();
+  
   document.getElementById("verifyDnsBtn").onclick = async () => {
     const btn = document.getElementById("verifyDnsBtn");
     const errMsg = document.getElementById("dnsErrorMsg");
-    btn.disabled = true; btn.textContent = "Querying Global DNS..."; errMsg.style.display = "none";
+    btn.disabled = true; btn.textContent = "Querying DNS & HTTP..."; errMsg.style.display = "none";
     try {
       const checkRes = await fetch("/api/verification/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname }) });
       const checkData = await checkRes.json();
       if (checkData.success) { document.getElementById("dnsModal").remove(); onSuccess(); } 
-      else { errMsg.textContent = checkData.error; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Verify DNS Record"; }
-    } catch (err) { errMsg.textContent = "Network error."; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Verify DNS Record"; }
+      else { errMsg.textContent = checkData.error; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Check Verification"; }
+    } catch (err) { errMsg.textContent = "Network error connecting to the server."; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Check Verification"; }
   };
 }
 
