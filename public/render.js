@@ -125,7 +125,58 @@ function renderResults(data, targetId = "results") {
 
   let html = `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
 
-  if (raw.activeDastStatus) html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05);"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
+if (raw.activeDastStatus) {
+    html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;">
+      <strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong>
+      <div class="result-item">
+        <span>Execution Status</span>
+        <span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span>
+      </div>
+    </div>`;
+
+    // Parse and render the ZAP JSON findings
+    if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
+      const alerts = raw.activeDastReport.site[0].alerts || [];
+      
+      if (alerts.length === 0) {
+        html += `<div class="card" style="border-color: var(--brand-emerald); margin-bottom: 24px;">
+          <strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p>
+        </div>`;
+      } else {
+        html += `<h4 style="margin: 32px 0 16px; font-size: 1.1rem; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Findings</h4>`;
+        
+        alerts.forEach(alert => {
+          let riskColor = "var(--text-secondary)";
+          let riskBg = "var(--surface-subtle)";
+          let riskText = "INFO";
+          
+          if (alert.riskcode === "3") { riskColor = "var(--brand-rose)"; riskBg = "rgba(244, 63, 94, 0.15)"; riskText = "HIGH"; }
+          else if (alert.riskcode === "2") { riskColor = "var(--brand-amber)"; riskBg = "rgba(245, 158, 11, 0.15)"; riskText = "MEDIUM"; }
+          else if (alert.riskcode === "1") { riskColor = "var(--brand-cyan)"; riskBg = "rgba(6, 182, 212, 0.15)"; riskText = "LOW"; }
+
+          // Strip HTML tags from ZAP's output for clean rendering
+          const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
+          const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
+
+          html += `
+          <div class="card" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+              <strong style="color: #fff; font-size: 1rem;">${alert.name}</strong>
+              <span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span>
+            </div>
+            <div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+              ${cleanDesc}
+            </div>
+            <div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);">
+              <strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong>
+              <span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span>
+            </div>
+          </div>`;
+        });
+      }
+    }
+  }
 
   html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
