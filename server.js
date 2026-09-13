@@ -23,7 +23,10 @@ import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPubl
 import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
-app.set("trust proxy", 1); app.use(express.json()); app.use(cookieParser()); app.use(express.static("public"));
+app.set("trust proxy", 1); 
+app.use(express.json({ limit: "10mb" })); 
+app.use(cookieParser()); 
+app.use(express.static("public"));
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const JWT_SECRET = process.env.JWT_SECRET || "sitescanner_dev_secret_key_12345";
@@ -64,6 +67,41 @@ async function validatePublicHostname(hostname) {
   const blockedRanges = ["loopback", "private", "linkLocal", "broadcast", "carrierGradeNat", "uniqueLocal", "reserved"];
   for (const { address } of addresses) { try { if (blockedRanges.includes(ipaddr.parse(address).range())) throw new Error("Domain resolves to restricted IP."); } catch (err) { if (err.message.includes("restricted")) throw err; throw new Error("Invalid IP resolved."); } }
   return true;
+}
+
+// ---------- GitHub Dispatch Helper ----------
+async function dispatchGitHubScan(hostname) {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_REPO;
+  const pat = process.env.GITHUB_PAT;
+  const appBaseUrl = process.env.APP_BASE_URL;
+  const webhookSecret = process.env.SCAN_WEBHOOK_SECRET;
+
+  if (!owner || !repo || !pat || !appBaseUrl || !webhookSecret) {
+    throw new Error("Missing GitHub Action worker configuration in environment variables.");
+  }
+
+  const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
+  const signature = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
+
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${pat}`,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "User-Agent": "SiteScanner-Backend",
+    },
+    body: JSON.stringify({
+      event_type: "active_dast_scan",
+      client_payload: { hostname, callback_url: callbackUrl, signature },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`GitHub API Error: ${response.status} - ${errText}`);
+  }
 }
 
 // ---------- Checkers ----------
@@ -235,13 +273,51 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     const hostname = sanitizeTargetDomain(req.body.url); await validatePublicHostname(hostname);
     const dbData = await getOrGenerateVerificationToken(req.user.id, hostname);
     if (!dbData.isVerified) return res.status(403).json({ error: "Domain ownership not verified." });
+
     const raw = await runScanPipeline(hostname);
-    raw.activeDastStatus = "DAST Engine executed. No severe runtime exploits detected."; 
+
+    try {
+      await dispatchGitHubScan(hostname);
+      raw.activeDastStatus = "Worker Runner dispatched. Deep assessment is executing in background...";
+    } catch (dispatchErr) {
+      console.error("[Dispatch Error]", dispatchErr.message);
+      raw.activeDastStatus = `Worker Dispatch Notice: ${dispatchErr.message}`;
+    }
+
     const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
-    await saveLatestScan(hostname, scanResult); res.json(scanResult);
+    await saveLatestScan(hostname, scanResult); 
+    res.json(scanResult);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------- Inbound Webhook Callback from GitHub Action ----------
+app.post("/api/webhooks/dast-callback", async (req, res) => {
+  const { hostname, results } = req.body;
+  const signature = req.headers["x-scan-signature"];
+  const appBaseUrl = process.env.APP_BASE_URL || "";
+  const webhookSecret = process.env.SCAN_WEBHOOK_SECRET || "";
+
+  const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
+  const expectedSig = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
+
+  if (signature !== expectedSig) {
+    return res.status(401).json({ error: "Invalid signature verification." });
+  }
+
+  try {
+    const existing = await getLatestScan(hostname);
+    if (existing) {
+      existing.raw.activeDastStatus = "Assessment Complete. Results ingested.";
+      existing.raw.activeDastReport = results;
+      await saveLatestScan(hostname, existing);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Webhook Error]", err.message);
+    res.status(500).json({ error: "Failed to persist scan output" });
+  }
 });
 
 app.post("/api/explain", async (req, res) => {

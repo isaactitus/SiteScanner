@@ -1,0 +1,44 @@
+name: On-Demand Active DAST Worker
+
+on:
+  repository_dispatch:
+    types: [active_dast_scan]
+
+jobs:
+  dast_scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Validate Target Payload
+        run: |
+          if [ -z "${{ github.event.client_payload.hostname }}" ]; then
+            echo "Error: Target hostname is missing"
+            exit 1
+          fi
+          echo "Initiating baseline audit for: ${{ github.event.client_payload.hostname }}"
+
+      - name: Setup Output Workspace
+        run: mkdir -p zap-workdir && chmod 777 zap-workdir
+
+      - name: Run Baseline Assessment
+        run: |
+          docker run --user root -v $(pwd)/zap-workdir:/zap/wrk/:rw \
+            -t zaproxy/zap-stable zap-baseline.py \
+            -t "https://${{ github.event.client_payload.hostname }}" \
+            -J report.json || true
+
+      - name: Post Results Back to SiteScanner
+        if: always()
+        run: |
+          REPORT_FILE="zap-workdir/report.json"
+          if [ -f "$REPORT_FILE" ]; then
+            REPORT_DATA=$(cat "$REPORT_FILE")
+          else
+            REPORT_DATA='{"site": [], "error": "Report file was not generated"}'
+          fi
+
+          curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "x-scan-signature: ${{ github.event.client_payload.signature }}" \
+            -d "{\"hostname\":\"${{ github.event.client_payload.hostname }}\",\"status\":\"completed\",\"results\":$REPORT_DATA}"
