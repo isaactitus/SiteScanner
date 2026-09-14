@@ -28,6 +28,9 @@ app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser()); 
 app.use(express.static("public"));
 
+// --- NEW: Global In-Memory Cache for AI Reports ---
+const aiCache = new Map();
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const JWT_SECRET = process.env.JWT_SECRET || "sitescanner_dev_secret_key_12345";
 const BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
@@ -223,14 +226,12 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
     browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage(); await page.setViewport({ width: 1200, height: 1600 });
     
-    // Inject the user's auth token into the headless browser so it views the page as a PRO user
     if (req.cookies && req.cookies.token) {
       await page.setCookie({ name: 'token', value: req.cookies.token, domain: 'localhost' });
     }
 
     await page.goto(`http://localhost:${process.env.PORT || 3000}/report/${req.params.hostname}`, { waitUntil: "networkidle0", timeout: 30000 });
     
-    // Instruct the headless browser to click the AI generation button and wait for it to render
     await page.evaluate(async () => {
       const explainBtn = document.getElementById('explainBtn');
       if(explainBtn) {
@@ -243,11 +244,10 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
             }
           });
           observer.observe(document.body, { childList: true, subtree: true });
-          setTimeout(resolve, 15000); // 15 second max timeout
+          setTimeout(resolve, 15000); 
         });
       }
       
-      // Hide interactive UI elements before snapping the PDF
       ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { 
         const el = document.querySelector(s); 
         if (el) el.style.display = 'none'; 
@@ -269,6 +269,10 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     const raw = await runScanPipeline(hostname); const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
+    
+    // Clear AI cache for fresh scan data
+    aiCache.delete(hostname);
+    
     await saveLatestScan(hostname, scanResult); if (req.body.listPublicly) await addToPublicFeed(hostname, score, grade);
     res.json(scanResult);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -294,6 +298,10 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
+    
+    // Clear AI cache for fresh scan data
+    aiCache.delete(hostname);
+    
     await saveLatestScan(hostname, scanResult); 
     res.json(scanResult);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -314,6 +322,10 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
     if (existing) {
       existing.raw.activeDastStatus = "Assessment Complete. Results ingested.";
       existing.raw.activeDastReport = results;
+      
+      // Clear AI cache so the new DAST results get included in the next generated blueprint
+      aiCache.delete(hostname);
+      
       await saveLatestScan(hostname, existing);
     }
     res.json({ success: true });
@@ -322,6 +334,12 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
 
 app.post("/api/explain", async (req, res) => {
   if (!req.body.raw || !req.body.hostname) return res.status(400).json({ error: "Missing scan data." });
+  
+  // Return instantly from Cache if PDF bot or user double-clicks!
+  if (aiCache.has(req.body.hostname)) {
+    return res.json(aiCache.get(req.body.hostname));
+  }
+  
   try {
     const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
     
@@ -345,7 +363,6 @@ app.post("/api/explain", async (req, res) => {
       activeVulnerabilities: dastAlerts
     };
 
-    // Modified Prompt: Removed artificial brevity constraints so the AI finishes its thoughts.
     const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}". Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
     
     const modelsToTry = ["gemini-3.6-flash"];
@@ -356,8 +373,8 @@ app.post("/api/explain", async (req, res) => {
           headers: { "Content-Type": "application/json" }, 
           body: JSON.stringify({ 
             contents: [{ parts: [{ text: prompt }] }], 
-            // Increased maxOutputTokens to prevent hard cut-offs
-            generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
+            // --- NEW: Maxed out token limit to 8192 to prevent truncation ---
+            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
             safetySettings: [
               { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
               { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -375,6 +392,12 @@ app.post("/api/explain", async (req, res) => {
           }
           aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
           aiError = null; 
+          
+          // --- NEW: Save successful result to cache ---
+          const finalResponse = { ruleBasedReport, aiReport, aiError };
+          aiCache.set(req.body.hostname, finalResponse);
+          setTimeout(() => aiCache.delete(req.body.hostname), 3600000); // Clear cache after 1 hour
+
           break; 
         } else { 
           const errorData = await response.json();
