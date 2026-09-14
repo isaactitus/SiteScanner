@@ -125,7 +125,7 @@ function renderResults(data, targetId = "results") {
 
   let html = `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
 
-if (raw.activeDastStatus) {
+  if (raw.activeDastStatus) {
     html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;">
       <strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong>
       <div class="result-item">
@@ -222,6 +222,25 @@ if (raw.activeDastStatus) {
         btn.textContent = "✓ Alerts Active"; btn.style.borderColor = "var(--brand-emerald)";
       } catch (err) { btn.disabled = false; btn.textContent = "🔔 Enable Alerts"; }
     });
+  }
+
+  // ==========================================
+  // REAL-TIME POLLING LOOP
+  // ==========================================
+  // If the status indicates the scan is still running in the background, check again in 10 seconds.
+  if (raw.activeDastStatus && raw.activeDastStatus.toLowerCase().includes("executing")) {
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/report/${encodeURIComponent(hostname)}`);
+        if (res.ok) {
+          const freshData = await res.json();
+          // Re-render the page with the newly fetched data
+          renderResults(freshData, targetId);
+        }
+      } catch (err) {
+        console.error("[Polling Error]", err);
+      }
+    }, 10000); 
   }
 }
 window.authReady = checkAuthSession();
