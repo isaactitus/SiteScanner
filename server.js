@@ -340,7 +340,8 @@ app.post("/api/explain", async (req, res) => {
 
     const prompt = `Senior AppSec Engineer mode. Analyze this security scan for "${req.body.hostname}". Produce an ultra-concise, actionable remediation blueprint for ONLY the detected issues. Categorize by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Limit response to under 350 words. Format cleanly using markdown. Scan findings: ${JSON.stringify(payloadContext)}`;
     
-    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash"];
+    // Explicitly using the requested active model
+    const modelsToTry = ["gemini-3.6-flash"];
     for (const model of modelsToTry) {
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { 
@@ -349,7 +350,6 @@ app.post("/api/explain", async (req, res) => {
           body: JSON.stringify({ 
             contents: [{ parts: [{ text: prompt }] }], 
             generationConfig: { temperature: 0.1, maxOutputTokens: 800 },
-            // --- NEW: Bypass safety filters for AppSec context ---
             safetySettings: [
               { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
               { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -361,7 +361,6 @@ app.post("/api/explain", async (req, res) => {
         
         if (response.ok) { 
           const jsonRes = await response.json();
-          // Check if it was still blocked for some reason
           if (jsonRes.candidates?.[0]?.finishReason === "SAFETY") {
              aiError = "Google API blocked the response due to safety filters.";
              break;
