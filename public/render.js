@@ -123,7 +123,41 @@ function renderResults(data, targetId = "results") {
   if (!raw.emailAuth?.isSharedHost) { if (!raw.emailAuth?.spf) warning++; else passed++; if (!raw.emailAuth?.dmarc) warning++; else passed++; } else passed++;
   if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
 
-  let html = `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
+// --- NEW: Quick Status Banner Logic ---
+  let quickStatusHtml = '';
+  const isMalware = raw.malware?.checked && raw.malware?.flagged;
+  
+  if (isMalware || score < 40 || !raw.tls?.valid) {
+    quickStatusHtml = `
+    <div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
+      <span style="font-size: 1.8rem;">🚨</span>
+      <div>
+        <strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong>
+        <span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span>
+      </div>
+    </div>`;
+  } else if (score < 75) {
+    quickStatusHtml = `
+    <div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
+      <span style="font-size: 1.8rem;">⚠️</span>
+      <div>
+        <strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong>
+        <span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span>
+      </div>
+    </div>`;
+  } else {
+    quickStatusHtml = `
+    <div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
+      <span style="font-size: 1.8rem;">✅</span>
+      <div>
+        <strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong>
+        <span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span>
+      </div>
+    </div>`;
+  }
+
+  // Prepend the Quick Status Banner to the Hero Grade Card
+  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
     html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;">
