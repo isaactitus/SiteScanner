@@ -116,115 +116,114 @@ function renderResults(data, targetId = "results") {
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
   const circumference = 2 * Math.PI * 40; const offset = circumference - (score / 100) * circumference;
 
+  // --- FIXED MATH: Accurately count all 7 categories ---
   let critical = 0, warning = 0, passed = 0;
+  
   if (!raw.tls?.valid) critical++; else passed++;
-  (raw.headers?.missing || []).forEach(() => critical++); (raw.headers?.present || []).forEach(() => passed++);
+  (raw.headers?.missing || []).forEach(() => critical++); 
+  (raw.headers?.present || []).forEach(() => passed++);
   if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
-  if (!raw.emailAuth?.isSharedHost) { if (!raw.emailAuth?.spf) warning++; else passed++; if (!raw.emailAuth?.dmarc) warning++; else passed++; } else passed++;
+  
+  if (!raw.emailAuth?.isSharedHost) { 
+    if (!raw.emailAuth?.spf) warning++; else passed++; 
+    if (!raw.emailAuth?.dmarc) warning++; else passed++; 
+  } else passed++; 
+  
   if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
+  
+  const badCookies = (raw.cookies?.cookies || []).filter(c => !c.secure || !c.httpOnly);
+  if (badCookies.length > 0) badCookies.forEach(() => warning++); 
+  else if (raw.cookies?.hasCookies) passed++;
 
-// --- NEW: Quick Status Banner Logic ---
+  if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
+
+  // --- Quick Status Banner ---
   let quickStatusHtml = '';
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
   
   if (isMalware || score < 40 || !raw.tls?.valid) {
-    quickStatusHtml = `
-    <div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
-      <span style="font-size: 1.8rem;">🚨</span>
-      <div>
-        <strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong>
-        <span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span>
-      </div>
-    </div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">🚨</span><div><strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong><span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span></div></div>`;
   } else if (score < 75) {
-    quickStatusHtml = `
-    <div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
-      <span style="font-size: 1.8rem;">⚠️</span>
-      <div>
-        <strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong>
-        <span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span>
-      </div>
-    </div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">⚠️</span><div><strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong><span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span></div></div>`;
   } else {
-    quickStatusHtml = `
-    <div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;">
-      <span style="font-size: 1.8rem;">✅</span>
-      <div>
-        <strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong>
-        <span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span>
-      </div>
-    </div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">✅</span><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
   }
 
-  // Prepend the Quick Status Banner to the Hero Grade Card
-  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
+  // Generate the Badges
+  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
+  // --- DRAWING THE UI CARDS ---
+
+  // 1. DAST Card
   if (raw.activeDastStatus) {
-    html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;">
-      <strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong>
-      <div class="result-item">
-        <span>Execution Status</span>
-        <span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span>
-      </div>
-    </div>`;
-
-    // Parse and render the ZAP JSON findings
+    html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
-      
       if (alerts.length === 0) {
-        html += `<div class="card" style="border-color: var(--brand-emerald); margin-bottom: 24px;">
-          <strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong>
-          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p>
-        </div>`;
+        html += `<div class="card" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
       } else {
         html += `<h4 style="margin: 32px 0 16px; font-size: 1.1rem; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Findings</h4>`;
-        
         alerts.forEach(alert => {
           let riskColor = "var(--text-secondary)";
           let riskBg = "var(--surface-subtle)";
           let riskText = "INFO";
-          
           if (alert.riskcode === "3") { riskColor = "var(--brand-rose)"; riskBg = "rgba(244, 63, 94, 0.15)"; riskText = "HIGH"; }
           else if (alert.riskcode === "2") { riskColor = "var(--brand-amber)"; riskBg = "rgba(245, 158, 11, 0.15)"; riskText = "MEDIUM"; }
           else if (alert.riskcode === "1") { riskColor = "var(--brand-cyan)"; riskBg = "rgba(6, 182, 212, 0.15)"; riskText = "LOW"; }
 
-          // Strip HTML tags from ZAP's output for clean rendering
           const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
           const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
 
-          html += `
-          <div class="card" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-              <strong style="color: #fff; font-size: 1rem;">${alert.name}</strong>
-              <span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span>
-            </div>
-            <div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
-              ${cleanDesc}
-            </div>
-            <div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);">
-              <strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong>
-              <span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span>
-            </div>
-          </div>`;
+          html += `<div class="card" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;"><strong style="color: #fff; font-size: 1rem;">${alert.name}</strong><span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span></div><div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">${cleanDesc}</div><div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);"><strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong><span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span></div></div>`;
         });
       }
     }
   }
 
+  // 2. TLS Card
   html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
   html += `</div>`;
 
+  // 3. Headers Card
   html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
   (raw.headers?.missing || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
   (raw.headers?.present || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
   html += `</div>`;
 
+  // 4. Exposed Files Card
   html += `<div class="card" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (isGuest && (raw.exposedFiles || []).length > 0) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view exposed paths</button></div>`;
+  if (isGuest && (raw.exposedFiles || []).length > 0) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view paths</button></div>`;
   else if (!raw.exposedFiles || raw.exposedFiles.length === 0) html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   else raw.exposedFiles.forEach(f => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
+  html += `</div>`;
+
+  // 5. NEW: Email Spoofing (SPF/DMARC)
+  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📧 Email Spoofing Protection</strong>`;
+  if (raw.emailAuth?.isSharedHost) {
+      html += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
+  } else {
+      html += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
+      html += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
+  }
+  html += `</div>`;
+
+  // 6. NEW: Cookies
+  if (raw.cookies?.hasCookies) {
+      html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🍪 Session & Cookie Security</strong>`;
+      if (badCookies.length === 0) {
+           html += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
+      } else {
+           badCookies.forEach(c => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
+      }
+      html += `</div>`;
+  }
+
+  // 7. NEW: CORS
+  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔄 Cross-Origin Resource Sharing (CORS)</strong>`;
+  if (raw.cors?.dangerousCombo) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
+  else if (raw.cors?.wildcardOpen) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
+  else html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
   html += `</div>`;
 
   if (isGuest) html += `<div class="card" style="text-align: center; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(180deg, rgba(30,27,75,0.3), rgba(15,23,42,0.8)); padding: 32px; margin-top: 24px;"><h3 style="color: #fff; margin-bottom: 8px;">Unlock Advanced Capabilities</h3><button onclick="showSignInModal()" class="cta-button" style="background: var(--brand-purple); border: none; max-width: 250px; margin: 0 auto;">Sign In with Google</button></div>`;
