@@ -152,54 +152,59 @@ function renderResults(data, targetId = "results") {
   // Generate the Badges
   let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
-  // --- DRAWING THE UI CARDS ---
+  // --- DRAWING THE UI CARDS WITH SEVERITY ATTRIBUTES ---
 
   // 1. DAST Card
   if (raw.activeDastStatus) {
-    html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
+    html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
       if (alerts.length === 0) {
-        html += `<div class="card" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
+        html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
       } else {
         html += `<h4 style="margin: 32px 0 16px; font-size: 1.1rem; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Findings</h4>`;
         alerts.forEach(alert => {
           let riskColor = "var(--text-secondary)";
           let riskBg = "var(--surface-subtle)";
           let riskText = "INFO";
-          if (alert.riskcode === "3") { riskColor = "var(--brand-rose)"; riskBg = "rgba(244, 63, 94, 0.15)"; riskText = "HIGH"; }
-          else if (alert.riskcode === "2") { riskColor = "var(--brand-amber)"; riskBg = "rgba(245, 158, 11, 0.15)"; riskText = "MEDIUM"; }
-          else if (alert.riskcode === "1") { riskColor = "var(--brand-cyan)"; riskBg = "rgba(6, 182, 212, 0.15)"; riskText = "LOW"; }
+          let sev = "passed";
+          if (alert.riskcode === "3") { riskColor = "var(--brand-rose)"; riskBg = "rgba(244, 63, 94, 0.15)"; riskText = "HIGH"; sev = "critical"; }
+          else if (alert.riskcode === "2") { riskColor = "var(--brand-amber)"; riskBg = "rgba(245, 158, 11, 0.15)"; riskText = "MEDIUM"; sev = "warning"; }
+          else if (alert.riskcode === "1") { riskColor = "var(--brand-cyan)"; riskBg = "rgba(6, 182, 212, 0.15)"; riskText = "LOW"; sev = "warning"; }
 
           const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
           const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
 
-          html += `<div class="card" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;"><strong style="color: #fff; font-size: 1rem;">${alert.name}</strong><span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span></div><div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">${cleanDesc}</div><div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);"><strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong><span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span></div></div>`;
+          html += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;"><strong style="color: #fff; font-size: 1rem;">${alert.name}</strong><span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span></div><div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">${cleanDesc}</div><div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);"><strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong><span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span></div></div>`;
         });
       }
     }
   }
 
   // 2. TLS Card
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
+  const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
+  html += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
   html += `</div>`;
 
   // 3. Headers Card
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
+  const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
+  html += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
   (raw.headers?.missing || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
   (raw.headers?.present || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
   html += `</div>`;
 
   // 4. Exposed Files Card
-  html += `<div class="card" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (isGuest && (raw.exposedFiles || []).length > 0) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view paths</button></div>`;
+  const hasExposed = (raw.exposedFiles || []).length > 0;
+  html += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
+  if (isGuest && hasExposed) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view paths</button></div>`;
   else if (!raw.exposedFiles || raw.exposedFiles.length === 0) html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   else raw.exposedFiles.forEach(f => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
   html += `</div>`;
 
-  // 5. NEW: Email Spoofing (SPF/DMARC)
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📧 Email Spoofing Protection</strong>`;
+  // 5. Email Spoofing
+  const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
+  html += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📧 Email Spoofing Protection</strong>`;
   if (raw.emailAuth?.isSharedHost) {
       html += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
   } else {
@@ -208,9 +213,10 @@ function renderResults(data, targetId = "results") {
   }
   html += `</div>`;
 
-  // 6. NEW: Cookies
+  // 6. Cookies
   if (raw.cookies?.hasCookies) {
-      html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🍪 Session & Cookie Security</strong>`;
+      const cookieSev = badCookies.length > 0 ? "warning" : "passed";
+      html += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🍪 Session & Cookie Security</strong>`;
       if (badCookies.length === 0) {
            html += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
       } else {
@@ -219,8 +225,9 @@ function renderResults(data, targetId = "results") {
       html += `</div>`;
   }
 
-  // 7. NEW: CORS
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔄 Cross-Origin Resource Sharing (CORS)</strong>`;
+  // 7. CORS
+  const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
+  html += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔄 Cross-Origin Resource Sharing (CORS)</strong>`;
   if (raw.cors?.dangerousCombo) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
   else if (raw.cors?.wildcardOpen) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
   else html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
@@ -230,6 +237,25 @@ function renderResults(data, targetId = "results") {
   else html += `<div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));"><button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button><button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button><button id="monitorBtn" class="cta-button" type="button" style="border-color: rgba(16,185,129,0.3); color: var(--brand-emerald);">🔔 Enable Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 16px;"></div>`;
   
   resultsEl.innerHTML = html;
+
+  // --- NEW: Filter cards by clicking summary pills ---
+  let activeFilter = null;
+  const filterCards = (severity) => {
+    const cards = document.querySelectorAll(".result-card");
+    if (activeFilter === severity) {
+      activeFilter = null;
+      cards.forEach(c => c.style.display = "");
+      return;
+    }
+    activeFilter = severity;
+    cards.forEach(c => {
+      c.style.display = c.getAttribute("data-severity") === severity ? "" : "none";
+    });
+  };
+
+  document.getElementById("filter-critical")?.addEventListener("click", () => filterCards("critical"));
+  document.getElementById("filter-warning")?.addEventListener("click", () => filterCards("warning"));
+  document.getElementById("filter-passed")?.addEventListener("click", () => filterCards("passed"));
 
   if (!isGuest) {
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
