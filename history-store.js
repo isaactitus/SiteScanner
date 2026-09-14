@@ -22,15 +22,17 @@ initDb().catch(console.error);
 
 export async function upsertUser({ id, email, name, avatarUrl }) {
   await db.execute({ sql: `INSERT INTO users (id, email, name, avatar_url) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, avatar_url = excluded.avatar_url`, args: [id, email, name, avatarUrl] });
-  return (await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro FROM users WHERE id = ?`, args: [id] })).rows[0];
+  return (await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [id] })).rows[0];
 }
+
 export async function getUserProfile(userId) {
-  const userRes = await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro, pro_started_at FROM users WHERE id = ?`, args: [userId] });
+  const userRes = await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [userId] });
   if (!userRes.rows.length) return null;
   const user = userRes.rows[0];
   const entitlementsRes = await db.execute({ sql: `SELECT hostname, unlocked_at FROM entitlements WHERE user_id = ? ORDER BY unlocked_at DESC`, args: [userId] });
-  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
+  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at || null, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
 }
+
 export async function grantDomainEntitlement(userId, hostname, orderId) { await db.execute({ sql: `INSERT INTO entitlements (user_id, hostname, order_id) VALUES (?, ?, ?) ON CONFLICT(user_id, hostname) DO NOTHING`, args: [userId, hostname.toLowerCase(), orderId] }); }
 export async function checkDomainEntitlement(userId, hostname) {
   if (!userId) return false;
