@@ -1,27 +1,15 @@
 // report-generator.js
 import { generateFixCode } from "./fix-code-generator.js";
 
-// Platforms where users deploy subdomains and cannot modify root DNS records
 const SHARED_HOST_SUFFIXES = [
-  "vercel.app",
-  "netlify.app",
-  "github.io",
-  "gitlab.io",
-  "pages.dev",
-  "onrender.com",
-  "fly.dev",
-  "railway.app",
-  "azurewebsites.net",
-  "herokuapp.com",
-  "firebaseapp.com",
-  "web.app"
+  "vercel.app", "netlify.app", "github.io", "gitlab.io", "pages.dev", 
+  "onrender.com", "fly.dev", "railway.app", "azurewebsites.net", 
+  "herokuapp.com", "firebaseapp.com", "web.app"
 ];
 
 function isSharedHostSubdomain(hostname) {
   const host = (hostname || "").toLowerCase().trim();
-  return SHARED_HOST_SUFFIXES.some(
-    suffix => host.endsWith(`.${suffix}`) || host === suffix
-  );
+  return SHARED_HOST_SUFFIXES.some(suffix => host.endsWith(`.${suffix}`) || host === suffix);
 }
 
 function detectPlatform(headers, exposedFiles) {
@@ -37,9 +25,6 @@ function detectPlatform(headers, exposedFiles) {
   return "unknown";
 }
 
-// REBALANCED SCORING: 
-// Modern browsers handle Referrer & Permissions natively. 
-// Missing headers shouldn't drop a safe site below a C.
 const HEADER_SEVERITY = {
   "content-security-policy": 15,
   "strict-transport-security": 10,
@@ -54,7 +39,6 @@ function calculateScore(raw, hostname = "") {
   const deductions = [];
   const sharedHost = isSharedHostSubdomain(hostname);
 
-  // Critical: TLS
   if (!raw.tls?.valid) {
     score -= 40;
     deductions.push({ reason: "SSL/TLS certificate invalid or unreachable", points: 40 });
@@ -63,7 +47,6 @@ function calculateScore(raw, hostname = "") {
     deductions.push({ reason: "SSL certificate expiring very soon", points: 10 });
   }
 
-  // Best Practice: Headers
   (raw.headers?.missing || []).forEach((h) => {
     const pts = HEADER_SEVERITY[h];
     if (pts > 0) {
@@ -72,7 +55,6 @@ function calculateScore(raw, hostname = "") {
     }
   });
 
-  // Critical: Exposed files
   const exposedCount = (raw.exposedFiles || []).length;
   if (exposedCount > 0) {
     const pts = Math.min(exposedCount * 20, 50);
@@ -80,7 +62,6 @@ function calculateScore(raw, hostname = "") {
     deductions.push({ reason: `${exposedCount} sensitive file(s) publicly exposed`, points: pts });
   }
 
-  // Best Practice: Email spoofing
   if (!sharedHost) {
     if (!raw.emailAuth?.spf) {
       score -= 5;
@@ -92,7 +73,6 @@ function calculateScore(raw, hostname = "") {
     }
   }
 
-  // Best Practice: Cookies
   const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
   if (insecureCookies.length > 0) {
     const pts = Math.min(insecureCookies.length * 4, 12);
@@ -100,7 +80,6 @@ function calculateScore(raw, hostname = "") {
     deductions.push({ reason: `${insecureCookies.length} cookie(s) missing Secure/HttpOnly flags`, points: pts });
   }
 
-  // High Risk: CORS
   if (raw.cors?.dangerousCombo) {
     score -= 30;
     deductions.push({ reason: "Dangerous CORS config: reflects any origin + allows credentials", points: 30 });
@@ -109,14 +88,12 @@ function calculateScore(raw, hostname = "") {
     deductions.push({ reason: "CORS wide open (Access-Control-Allow-Origin: *)", points: 5 });
   }
 
-  // Medium Risk: Mixed content
   if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) {
     const pts = Math.min(raw.mixedContent.insecureResources.length * 5, 20);
     score -= pts;
     deductions.push({ reason: `${raw.mixedContent.insecureResources.length} insecure (HTTP) resource(s) on HTTPS page`, points: pts });
   }
 
-  // Critical: Malware
   if (raw.malware?.checked && raw.malware.flagged) {
     score -= 60;
     deductions.push({ reason: `Flagged by Google Safe Browsing: ${(raw.malware.threatTypes || []).join(", ")}`, points: 60 });
@@ -130,7 +107,7 @@ const HEADER_EXPLANATIONS = {
     what: "Your site does not declare which script, style, and media sources the browser is permitted to execute.",
     why: "Without this header, malicious code injected via cross-site scripting (XSS) executes without restriction.",
     fix: {
-      vercel: "Add a Content-Security-Policy key under headers() in your next.config.js.",
+      vercel: "Add a Content-Security-Policy mapping to your vercel.json configuration file.",
       wordpress: "Configure CSP via a security plugin (e.g., Wordfence or Really Simple SSL).",
       unknown: "Define Content-Security-Policy in your web server config starting with default-src 'self'.",
     },
@@ -139,7 +116,7 @@ const HEADER_EXPLANATIONS = {
     what: "Your site does not instruct browsers to exclusively use HTTPS for future connections.",
     why: "Users can be downgraded to plain unencrypted HTTP during man-in-the-middle network attacks.",
     fix: {
-      vercel: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains in next.config.js.",
+      vercel: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains to your vercel.json file.",
       wordpress: "Enable HSTS in your SSL configuration plugin.",
       unknown: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains at your edge or web server.",
     },
@@ -148,7 +125,7 @@ const HEADER_EXPLANATIONS = {
     what: "Your site does not declare whether other domains can embed it inside an iframe.",
     why: "Attackers can frame your site transparently and trick users into clicking buttons (Clickjacking).",
     fix: {
-      vercel: "Add X-Frame-Options: SAMEORIGIN or DENY to your next.config.js headers.",
+      vercel: "Add X-Frame-Options: SAMEORIGIN or DENY to your vercel.json file.",
       wordpress: "Enable frame protection in your site headers or security plugin settings.",
       unknown: "Add X-Frame-Options: SAMEORIGIN in your server block.",
     },
@@ -157,7 +134,7 @@ const HEADER_EXPLANATIONS = {
     what: "Browsers are permitted to guess MIME types rather than adhering strictly to Content-Type headers.",
     why: "An uploaded benign file like an image could be interpreted and executed by the browser as JavaScript.",
     fix: {
-      vercel: "Add X-Content-Type-Options: nosniff in next.config.js.",
+      vercel: "Add X-Content-Type-Options: nosniff to your vercel.json file.",
       wordpress: "Toggle nosniff headers in your server or security plugin.",
       unknown: "Add X-Content-Type-Options: nosniff to your response headers.",
     },
