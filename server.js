@@ -28,7 +28,6 @@ app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser()); 
 app.use(express.static("public"));
 
-// --- NEW: Global In-Memory Cache for AI Reports ---
 const aiCache = new Map();
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -224,7 +223,8 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
   let browser = null;
   try {
     browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
-    const page = await browser.newPage(); await page.setViewport({ width: 1200, height: 1600 });
+    const page = await browser.newPage(); 
+    await page.setViewport({ width: 1200, height: 1600 });
     
     if (req.cookies && req.cookies.token) {
       await page.setCookie({ name: 'token', value: req.cookies.token, domain: 'localhost' });
@@ -232,11 +232,15 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
 
     await page.goto(`http://localhost:${process.env.PORT || 3000}/report/${req.params.hostname}`, { waitUntil: "networkidle0", timeout: 30000 });
     
+    await page.waitForSelector('#explainBtn', { timeout: 10000 }).catch(() => {});
+
     await page.evaluate(async () => {
       const explainBtn = document.getElementById('explainBtn');
       if(explainBtn) {
         explainBtn.click();
         await new Promise(resolve => {
+          if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
+          
           const observer = new MutationObserver(() => {
             if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
               observer.disconnect();
@@ -244,8 +248,9 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
             }
           });
           observer.observe(document.body, { childList: true, subtree: true });
-          setTimeout(resolve, 15000); 
+          setTimeout(resolve, 20000); 
         });
+        await new Promise(r => setTimeout(r, 1000));
       }
       
       ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { 
@@ -270,7 +275,6 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
     
-    // Clear AI cache for fresh scan data
     aiCache.delete(hostname);
     
     await saveLatestScan(hostname, scanResult); if (req.body.listPublicly) await addToPublicFeed(hostname, score, grade);
@@ -299,7 +303,6 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
     
-    // Clear AI cache for fresh scan data
     aiCache.delete(hostname);
     
     await saveLatestScan(hostname, scanResult); 
@@ -322,10 +325,7 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
     if (existing) {
       existing.raw.activeDastStatus = "Assessment Complete. Results ingested.";
       existing.raw.activeDastReport = results;
-      
-      // Clear AI cache so the new DAST results get included in the next generated blueprint
       aiCache.delete(hostname);
-      
       await saveLatestScan(hostname, existing);
     }
     res.json({ success: true });
@@ -335,7 +335,6 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
 app.post("/api/explain", async (req, res) => {
   if (!req.body.raw || !req.body.hostname) return res.status(400).json({ error: "Missing scan data." });
   
-  // Return instantly from Cache if PDF bot or user double-clicks!
   if (aiCache.has(req.body.hostname)) {
     return res.json(aiCache.get(req.body.hostname));
   }
@@ -365,15 +364,18 @@ app.post("/api/explain", async (req, res) => {
 
     const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}". Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
     
-    const modelsToTry = ["gemini-3.6-flash"];
-    for (const model of modelsToTry) {
+    const model = "gemini-3.6-flash";
+    const maxRetries = 3;
+    let attempt = 1;
+
+    // --- NEW: Exponential Backoff Retry Loop ---
+    while (attempt <= maxRetries) {
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { 
           method: "POST", 
           headers: { "Content-Type": "application/json" }, 
           body: JSON.stringify({ 
             contents: [{ parts: [{ text: prompt }] }], 
-            // --- NEW: Maxed out token limit to 8192 to prevent truncation ---
             generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
             safetySettings: [
               { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
@@ -393,18 +395,32 @@ app.post("/api/explain", async (req, res) => {
           aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
           aiError = null; 
           
-          // --- NEW: Save successful result to cache ---
           const finalResponse = { ruleBasedReport, aiReport, aiError };
           aiCache.set(req.body.hostname, finalResponse);
-          setTimeout(() => aiCache.delete(req.body.hostname), 3600000); // Clear cache after 1 hour
-
+          setTimeout(() => aiCache.delete(req.body.hostname), 3600000);
           break; 
         } else { 
           const errorData = await response.json();
+          const isRateLimit = response.status === 429 || response.status === 503;
+          
+          if (isRateLimit && attempt < maxRetries) {
+            // Wait before trying again (2 seconds, then 4 seconds)
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+            attempt++;
+            continue;
+          }
+          
           aiError = `Google API Error (${model}): ${errorData.error?.message || response.statusText}`; 
+          break; // Break on hard errors (like bad API key)
         }
       } catch (err) { 
+        if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+            attempt++;
+            continue;
+        }
         aiError = `Network Error (${model}): ${err.message}`; 
+        break;
       }
     }
     
