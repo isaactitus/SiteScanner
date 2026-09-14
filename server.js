@@ -324,10 +324,32 @@ app.post("/api/explain", async (req, res) => {
   if (!req.body.raw || !req.body.hostname) return res.status(400).json({ error: "Missing scan data." });
   try {
     const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
+    
     if (!req.user || !req.user.is_pro) return res.json({ ruleBasedReport, aiReport: null, aiError: "Pro upgrade required." });
     if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
+    
     let aiReport = null, aiError = null;
-    const prompt = `Senior AppSec Engineer mode. Analyze this scan for "${req.body.hostname}". Produce an ultra-concise, copy-pasteable remediation guide for ONLY the detected issues. Limit response to under 300 words. Scan findings: ${JSON.stringify({ missingHeaders: req.body.raw.headers?.missing || [], exposedFiles: req.body.raw.exposedFiles || [], emailAuth: req.body.raw.emailAuth || {} })}`;
+    
+    // Extract and sanitize ZAP Active DAST Alerts
+    let dastAlerts = [];
+    if (req.body.raw.activeDastReport?.site?.[0]?.alerts) {
+      dastAlerts = req.body.raw.activeDastReport.site[0].alerts.map(a => ({
+        name: a.name,
+        risk: a.riskcode === "3" ? "High" : a.riskcode === "2" ? "Medium" : "Low",
+        description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) // Keep prompt concise
+      }));
+    }
+
+    // Build the master context payload for the AI
+    const payloadContext = {
+      missingHeaders: req.body.raw.headers?.missing || [],
+      exposedFiles: req.body.raw.exposedFiles || [],
+      emailAuth: req.body.raw.emailAuth || {},
+      activeVulnerabilities: dastAlerts
+    };
+
+    const prompt = `Senior AppSec Engineer mode. Analyze this security scan for "${req.body.hostname}". Produce an ultra-concise, actionable remediation blueprint for ONLY the detected issues. Categorize by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Limit response to under 350 words. Format cleanly using markdown. Scan findings: ${JSON.stringify(payloadContext)}`;
+    
     for (const model of ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-pro"]) {
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 800 } }) });
