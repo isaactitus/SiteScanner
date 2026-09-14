@@ -174,14 +174,32 @@
       if (window.authReady) await window.authReady;
       if (!currentUser) return window.location.href = "/";
 
-      // 1. Render Billing UI
+      // 1. Render Billing UI (Dynamically calculated based on purchase date)
       const planUi = document.getElementById("planStatusUi");
       if (currentUser.is_pro) {
+        let daysRemaining = 30;
+        let progressPercent = 0;
+        
+        if (currentUser.pro_started_at) {
+          // SQLite CURRENT_TIMESTAMP returns UTC without a 'Z'. Add it to parse locally.
+          const dbDateStr = currentUser.pro_started_at.replace(" ", "T") + "Z";
+          const startDate = new Date(dbDateStr);
+          const now = new Date();
+          
+          // Calculate elapsed days
+          const diffDays = Math.abs(now - startDate) / (1000 * 60 * 60 * 24);
+          
+          // Assuming a standard rolling 30-day billing cycle
+          const cycleDay = diffDays % 30; 
+          daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
+          progressPercent = Math.round((cycleDay / 30) * 100);
+        }
+
         planUi.innerHTML = `
           <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: var(--brand-purple); border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">PRO TIER</span>
-          <div style="font-size: 0.85rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">28 Days</strong></div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
           <div style="width: 100%; height: 4px; background: var(--surface-border); border-radius: 2px; margin-top: 8px; overflow: hidden;">
-            <div style="width: 15%; height: 100%; background: var(--brand-purple);"></div>
+            <div style="width: ${progressPercent}%; height: 100%; background: var(--brand-purple);"></div>
           </div>`;
       } else {
         planUi.innerHTML = `

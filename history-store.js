@@ -13,6 +13,7 @@ export async function initDb() {
   await db.execute(`CREATE TABLE IF NOT EXISTS public_feed (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   try { await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, avatar_url TEXT, is_pro INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
@@ -24,11 +25,11 @@ export async function upsertUser({ id, email, name, avatarUrl }) {
   return (await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro FROM users WHERE id = ?`, args: [id] })).rows[0];
 }
 export async function getUserProfile(userId) {
-  const userRes = await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro FROM users WHERE id = ?`, args: [userId] });
+  const userRes = await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro, pro_started_at FROM users WHERE id = ?`, args: [userId] });
   if (!userRes.rows.length) return null;
   const user = userRes.rows[0];
   const entitlementsRes = await db.execute({ sql: `SELECT hostname, unlocked_at FROM entitlements WHERE user_id = ? ORDER BY unlocked_at DESC`, args: [userId] });
-  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
+  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
 }
 export async function grantDomainEntitlement(userId, hostname, orderId) { await db.execute({ sql: `INSERT INTO entitlements (user_id, hostname, order_id) VALUES (?, ?, ?) ON CONFLICT(user_id, hostname) DO NOTHING`, args: [userId, hostname.toLowerCase(), orderId] }); }
 export async function checkDomainEntitlement(userId, hostname) {
@@ -64,8 +65,6 @@ export async function getOrGenerateVerificationToken(userId, hostname) {
   return { token: newToken, isVerified: false };
 }
 export async function markDomainVerified(userId, hostname) { await db.execute({ sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`, args: [userId, hostname.toLowerCase()] }); }
-
-// --- NEW TOGGLE FUNCTIONS ---
 export async function toggleMonitorStatus(userId, monitorId, isActive) {
   await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE id = ? AND user_id = ?`, args: [isActive ? 1 : 0, monitorId, userId] });
 }

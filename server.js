@@ -177,7 +177,11 @@ app.post("/api/create-order", async (req, res) => {
 });
 app.post("/api/verify-payment", async (req, res) => {
   const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${req.body.razorpay_order_id}|${req.body.razorpay_payment_id}`).digest("hex");
-  if (hmac === req.body.razorpay_signature && req.user) { await db.execute({ sql: `UPDATE users SET is_pro = 1 WHERE id = ?`, args: [req.user.id] }); return res.json({ success: true }); }
+  if (hmac === req.body.razorpay_signature && req.user) { 
+    // --- UPDATED: Track exactly when the user's Pro cycle started ---
+    await db.execute({ sql: `UPDATE users SET is_pro = 1, pro_started_at = CURRENT_TIMESTAMP WHERE id = ?`, args: [req.user.id] }); 
+    return res.json({ success: true }); 
+  }
   res.status(400).json({ success: false, error: "Invalid payment signature." });
 });
 
