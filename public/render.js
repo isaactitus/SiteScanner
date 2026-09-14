@@ -204,16 +204,22 @@ function renderResults(data, targetId = "results") {
       const btn = document.getElementById("exportPdfBtn"); btn.disabled = true; btn.textContent = "Generating PDF...";
       try { const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`)).blob(); const url = window.URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SiteScanner_${hostname}.pdf`; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url); } catch { alert("PDF Export Error"); } finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
     });
+    
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
       const container = document.getElementById("reportContainer"); container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Compiling security intelligence blueprint...</div>';
       try {
         const resData = await (await fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw, hostname }) })).json();
-        let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${resData.ruleBasedReport}</div></div>`;
-        if (resData.aiReport) reportsHtml += `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${resData.aiReport}</div></div>`;
+        
+        // Parse Markdown to HTML if marked.js is loaded, otherwise fallback to plain text
+        const parseMD = (text) => window.marked ? marked.parse(text) : text;
+
+        let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
+        if (resData.aiReport) reportsHtml += `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(resData.aiReport)}</div></div>`;
         else if (resData.aiError) reportsHtml += `<div class="card" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
         container.innerHTML = reportsHtml;
       } catch (err) { container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; }
     });
+
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
       const btn = document.getElementById("monitorBtn"); btn.disabled = true; btn.textContent = "Configuring...";
@@ -227,14 +233,12 @@ function renderResults(data, targetId = "results") {
   // ==========================================
   // REAL-TIME POLLING LOOP
   // ==========================================
-  // If the status indicates the scan is still running in the background, check again in 10 seconds.
   if (raw.activeDastStatus && raw.activeDastStatus.toLowerCase().includes("executing")) {
     setTimeout(async () => {
       try {
         const res = await fetch(`/api/report/${encodeURIComponent(hostname)}`);
         if (res.ok) {
           const freshData = await res.json();
-          // Re-render the page with the newly fetched data
           renderResults(freshData, targetId);
         }
       } catch (err) {
