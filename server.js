@@ -19,7 +19,7 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
@@ -195,17 +195,12 @@ app.post("/api/verification/check", async (req, res) => {
     if (dbData.isVerified) return res.json({ success: true, message: "Already verified." });
 
     let isVerified = false;
-
-    // 1. DNS Check
     const resolver = new Resolver(); resolver.setServers(["8.8.8.8", "1.1.1.1"]);
     try {
       const records = await resolver.resolveTxt(hostname);
       if (records.map(r => r.join("")).includes(dbData.token)) isVerified = true;
-    } catch (dnsErr) {
-      if (dnsErr.code !== "ENODATA" && dnsErr.code !== "ENOTFOUND") console.error("[DNS Error]", dnsErr.message);
-    }
+    } catch (dnsErr) {}
 
-    // 2. HTTP Check Fallback
     if (!isVerified) {
       try {
         const url = `https://${hostname}/.well-known/sitescanner-verification.txt`;
@@ -217,12 +212,25 @@ app.post("/api/verification/check", async (req, res) => {
     }
 
     if (isVerified) { await markDomainVerified(req.user.id, hostname); return res.json({ success: true, message: "Domain verified successfully!" }); }
-    res.status(400).json({ success: false, error: "Verification failed. Neither the DNS TXT record nor the HTTP verification file was found. Ensure your changes have been deployed or propagated." });
+    res.status(400).json({ success: false, error: "Verification failed. Check your DNS TXT record or HTTP verification file." });
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
+// ---------- Monitors & Toggles ----------
 app.post("/api/monitors", async (req, res) => { if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); res.json({ success: true }); });
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
+
+app.patch("/api/monitors/:id/toggle", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } 
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.patch("/api/monitors/toggle-domain", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } 
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 app.get("/api/download-pdf/:hostname", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro plan required" });
@@ -238,23 +246,6 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
 });
 
 // ---------- Scan Routes ----------
-app.post("/api/quickcheck", async (req, res) => {
-  if (!req.body.ownershipConfirmed) return res.status(400).json({ error: "You must confirm authorization." });
-  try {
-    const hostname = sanitizeTargetDomain(req.body.url); await validatePublicHostname(hostname); const targetHttpsUrl = `https://${hostname}`;
-    const [malware, tlsInfo, headersInfo, exposedFiles, httpsEnforcement] = await Promise.allSettled([ checkMalwareBlocklist(targetHttpsUrl), checkTLS(hostname), checkSecurityHeaders(targetHttpsUrl), checkExposedFiles(targetHttpsUrl), checkHttpsEnforcement(hostname) ]);
-    const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false }; const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false }; const missing = headersInfo.status === "fulfilled" ? (headersInfo.value.missing || []) : []; const exposed = exposedFiles.status === "fulfilled" ? exposedFiles.value : []; const enforcement = httpsEnforcement.status === "fulfilled" ? httpsEnforcement.value : { plainTextAllowed: false };
-    const criticalIssues = [], warningIssues = [];
-    if (enforcement.plainTextAllowed) criticalIssues.push("Plaintext HTTP is served without redirecting to HTTPS.");
-    if (malwareResult.checked && malwareResult.flagged) criticalIssues.push(`Flagged for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
-    if (!tlsResult.valid) criticalIssues.push("No valid SSL certificate — connection is insecure"); else if (tlsResult.daysUntilExpiry !== null && tlsResult.daysUntilExpiry < 14) warningIssues.push(`SSL certificate expires in ${tlsResult.daysUntilExpiry} days`);
-    if (exposed.length > 0) criticalIssues.push(`${exposed.length} sensitive file(s) publicly exposed`);
-    if (missing.includes("content-security-policy")) warningIssues.push("Missing Content Security Policy (vulnerable to XSS)");
-    const status = criticalIssues.length > 0 ? "critical" : (warningIssues.length > 0 ? "warning" : "safe");
-    res.json({ hostname, status, safe: status !== "critical", reasons: [...criticalIssues, ...warningIssues], malwareChecked: malwareResult.checked });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.post("/api/scan", scanLimiter, async (req, res) => {
   if (!req.body.ownershipConfirmed) return res.status(400).json({ error: "You must confirm authorization." });
   try {
@@ -292,7 +283,6 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ---------- Inbound Webhook Callback from GitHub Action ----------
 app.post("/api/webhooks/dast-callback", async (req, res) => {
   const { hostname, results } = req.body;
   const signature = req.headers["x-scan-signature"];
@@ -329,18 +319,15 @@ app.post("/api/explain", async (req, res) => {
     if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
     
     let aiReport = null, aiError = null;
-    
-    // Extract and sanitize ZAP Active DAST Alerts
     let dastAlerts = [];
     if (req.body.raw.activeDastReport?.site?.[0]?.alerts) {
       dastAlerts = req.body.raw.activeDastReport.site[0].alerts.map(a => ({
         name: a.name,
         risk: a.riskcode === "3" ? "High" : a.riskcode === "2" ? "Medium" : "Low",
-        description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) // Keep prompt concise
+        description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) 
       }));
     }
 
-    // Build the master context payload for the AI
     const payloadContext = {
       missingHeaders: req.body.raw.headers?.missing || [],
       exposedFiles: req.body.raw.exposedFiles || [],

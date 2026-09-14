@@ -64,3 +64,11 @@ export async function getOrGenerateVerificationToken(userId, hostname) {
   return { token: newToken, isVerified: false };
 }
 export async function markDomainVerified(userId, hostname) { await db.execute({ sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`, args: [userId, hostname.toLowerCase()] }); }
+
+// --- NEW TOGGLE FUNCTIONS ---
+export async function toggleMonitorStatus(userId, monitorId, isActive) {
+  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE id = ? AND user_id = ?`, args: [isActive ? 1 : 0, monitorId, userId] });
+}
+export async function toggleMonitorByHostname(userId, hostname, isActive) {
+  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, userId, hostname.toLowerCase()] });
+}

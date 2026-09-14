@@ -238,7 +238,7 @@ function renderResults(data, targetId = "results") {
   
   resultsEl.innerHTML = html;
 
-  // --- NEW: Filter cards by clicking summary pills ---
+  // --- Filter cards by clicking summary pills ---
   let activeFilter = null;
   const filterCards = (severity) => {
     const cards = document.querySelectorAll(".result-card");
@@ -258,23 +258,26 @@ function renderResults(data, targetId = "results") {
   document.getElementById("filter-passed")?.addEventListener("click", () => filterCards("passed"));
 
   if (!isGuest) {
-    // --- NEW: Check if domain is already being monitored ---
+    let isMonitoring = false;
+
+    // --- Check if domain is already being monitored ---
     if (currentUser.is_pro) {
       fetch("/api/monitors")
         .then(res => res.json())
         .then(monitors => {
           if (Array.isArray(monitors) && monitors.some(m => m.hostname.toLowerCase() === hostname.toLowerCase() && m.is_active === 1)) {
+            isMonitoring = true;
             const btn = document.getElementById("monitorBtn");
             if (btn) {
               btn.textContent = "✓ Alerts Active";
               btn.style.borderColor = "var(--brand-emerald)";
-              btn.disabled = true; // Disable it so they don't accidentally send duplicate requests
+              btn.style.color = "var(--brand-emerald)";
             }
           }
-        })
-        .catch(() => {}); // silently fail if network error
+        }).catch(() => {}); 
     }
     // --------------------------------------------------------
+
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", () => window.location.reload());
       const btn = document.getElementById("exportPdfBtn"); btn.disabled = true; btn.textContent = "Generating PDF...";
@@ -298,11 +301,29 @@ function renderResults(data, targetId = "results") {
 
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
-      const btn = document.getElementById("monitorBtn"); btn.disabled = true; btn.textContent = "Configuring...";
-      try {
-        await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
-        btn.textContent = "✓ Alerts Active"; btn.style.borderColor = "var(--brand-emerald)";
-      } catch (err) { btn.disabled = false; btn.textContent = "🔔 Enable Alerts"; }
+      const btn = document.getElementById("monitorBtn"); 
+      btn.disabled = true; 
+      
+      if (isMonitoring) {
+        btn.textContent = "Disabling...";
+        try {
+          await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
+          isMonitoring = false;
+          btn.textContent = "🔔 Enable Alerts"; 
+          btn.style.borderColor = "rgba(16,185,129,0.3)";
+          btn.style.color = "var(--brand-emerald)";
+        } catch (err) { btn.textContent = "Error"; }
+      } else {
+        btn.textContent = "Configuring...";
+        try {
+          await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          isMonitoring = true;
+          btn.textContent = "✓ Alerts Active"; 
+          btn.style.borderColor = "var(--brand-emerald)";
+          btn.style.color = "var(--brand-emerald)";
+        } catch (err) { btn.textContent = "Error"; }
+      }
+      btn.disabled = false;
     });
   }
 
