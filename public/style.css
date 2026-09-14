@@ -582,7 +582,8 @@ body {
     box-shadow: none !important;
     color: #0f172a !important;
     margin-bottom: 16px !important;
-    break-inside: avoid;
+    /* FIXED: Prevent massive elements from being deleted by allowing page breaks */
+    break-inside: auto !important; 
   }
 
   .hero-grade-card {
@@ -596,6 +597,11 @@ body {
 
   .grade-ring-bg {
     stroke: #e2e8f0 !important;
+  }
+
+  .result-card, .result-item {
+     /* Allow small scan rows to stay together */
+     break-inside: avoid !important;
   }
 
   .result-item {
@@ -638,5 +644,6 @@ body {
     background: #f1f5f9 !important;
     border: 1px solid #cbd5e1 !important;
     color: #0f172a !important;
+    break-inside: avoid;
   }
 }
