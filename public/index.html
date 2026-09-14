@@ -36,9 +36,8 @@
       <!-- Unified Scanning Dock -->
       <section class="scan-card">
         <div class="tab-group">
-          <button id="tabQuick" class="tab-btn active" type="button">Quick Check</button>
-          <button id="tabFull" class="tab-btn" type="button">Deep Technical Scan</button>
-          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST Audit</button>
+          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
+          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
         </div>
 
         <form id="scanForm">
@@ -52,7 +51,7 @@
               autocomplete="off" 
               required 
             />
-            <button id="submitScanBtn" type="submit" class="scan-btn">Scan Target</button>
+            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
           </div>
 
           <div class="scan-options">
@@ -60,8 +59,8 @@
               <input type="checkbox" id="ownershipConfirmed" checked required />
               <span>I confirm authorization to scan this domain</span>
             </label>
-            <label class="checkbox-label" id="publicFeedOption" style="display: none;">
-              <input type="checkbox" id="listPublicly">
+            <label class="checkbox-label" id="publicFeedOption" style="display: inline-flex;">
+              <input type="checkbox" id="listPublicly" checked>
               <span>List result in public recent scans</span>
             </label>
           </div>
@@ -75,9 +74,6 @@
           <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
         </div>
       </div>
-
-      <!-- Quick Check Result Dropdown -->
-      <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
 
       <!-- Progressive / Standard Output Section -->
       <section id="results" class="results-area"></section>

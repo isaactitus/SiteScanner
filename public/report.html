@@ -18,10 +18,9 @@
     </nav>
     <main>
       <section class="scan-card">
-        <div class="tab-group"><button id="tabQuick" class="tab-btn" type="button">Quick Check</button><button id="tabFull" class="tab-btn active" type="button">Deep Technical Scan</button><button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST Audit</button></div>
-        <form id="scanForm"><div class="input-group"><input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required /><button id="submitScanBtn" type="submit" class="scan-btn">Scan Target</button></div><div class="scan-options"><label class="checkbox-label"><input type="checkbox" id="ownershipConfirmed" checked required /><span>I confirm authorization to scan this domain</span></label></div></form>
+        <div class="tab-group"><button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button><button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button></div>
+        <form id="scanForm"><div class="input-group"><input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required /><button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button></div><div class="scan-options"><label class="checkbox-label"><input type="checkbox" id="ownershipConfirmed" checked required /><span>I confirm authorization to scan this domain</span></label></div></form>
       </section>
-      <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
       <section id="results" class="results-area"><div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);"><p style="font-size: 0.95rem;">Retrieving security audit findings...</p></div></section>
     </main>
   </div>
@@ -31,30 +30,80 @@
       let scanMode = "full"; 
       const pathParts = window.location.pathname.split("/report/");
       const targetDomain = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : "";
-      const input = document.getElementById("targetUrl"); const resultsEl = document.getElementById("results"); const submitBtn = document.getElementById("submitScanBtn");
-      const tabQuick = document.getElementById("tabQuick"); const tabFull = document.getElementById("tabFull"); const tabActive = document.getElementById("tabActive");
-      function updateTabs(activeBtn) { [tabQuick, tabFull, tabActive].forEach(b => b.classList.remove('active')); activeBtn.classList.add('active'); if (scanMode === 'active') { submitBtn.textContent = 'Launch Active Exploits'; submitBtn.style.background = 'var(--brand-emerald)'; submitBtn.style.color = '#fff'; } else { submitBtn.textContent = scanMode === 'full' ? 'Scan Target' : 'Quick Check'; submitBtn.style.background = '#fff'; submitBtn.style.color = '#090d16'; } }
-      tabQuick.addEventListener("click", () => { scanMode = "quick"; updateTabs(tabQuick); }); tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); }); tabActive.addEventListener("click", () => { scanMode = "active"; updateTabs(tabActive); });
+      const input = document.getElementById("targetUrl"); 
+      const resultsEl = document.getElementById("results"); 
+      const submitBtn = document.getElementById("submitScanBtn");
+      const tabFull = document.getElementById("tabFull"); 
+      const tabActive = document.getElementById("tabActive");
+      
+      function updateTabs(activeBtn) { 
+        [tabFull, tabActive].forEach(b => b.classList.remove('active')); 
+        activeBtn.classList.add('active'); 
+        if (scanMode === 'active') { 
+          submitBtn.textContent = 'Launch Active Exploits'; 
+          submitBtn.style.background = 'var(--brand-emerald)'; 
+          submitBtn.style.color = '#fff'; 
+        } else { 
+          submitBtn.textContent = 'Run Standard Audit'; 
+          submitBtn.style.background = '#fff'; 
+          submitBtn.style.color = '#090d16'; 
+        } 
+      }
+      
+      tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); }); 
+      tabActive.addEventListener("click", () => { scanMode = "active"; updateTabs(tabActive); });
 
       if (targetDomain) {
         input.value = targetDomain; document.title = `SiteScanner Audit — ${targetDomain}`;
-        try { const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`); if (!res.ok) throw new Error("No previous scan found."); const reportData = await res.json(); if (window.authReady) await window.authReady; renderResults(reportData); } catch (err) { resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Not Loaded</div>`; }
+        try { 
+          const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`); 
+          if (!res.ok) throw new Error("No previous scan found."); 
+          const reportData = await res.json(); 
+          if (window.authReady) await window.authReady; 
+          renderResults(reportData); 
+        } catch (err) { 
+          resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Not Loaded</div>`; 
+        }
       }
+      
       document.getElementById("scanForm").addEventListener("submit", async (e) => {
-        e.preventDefault(); const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, ""); if (!url) return;
+        e.preventDefault(); 
+        const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, ""); 
+        if (!url) return;
+
         if (scanMode === 'active') {
           if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
           return window.showDnsVerificationModal(url, async () => {
-            submitBtn.disabled = true; submitBtn.textContent = 'Injecting Payloads...';
+            submitBtn.disabled = true; 
+            submitBtn.textContent = 'Injecting Payloads...';
             resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px;"><strong style="color:var(--brand-emerald); display: block;">Verification Passed. Launching Active Vulnerability Exploits...</strong></div>';
-            try { const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); if (data.error) throw new Error(data.error); history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); renderResults(data); } catch (err) { resultsEl.innerHTML = `<div class="card">${err.message}</div>`; } finally { submitBtn.disabled = false; submitBtn.textContent = 'Launch Active Exploits'; }
+            try { 
+              const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); 
+              if (data.error) throw new Error(data.error); 
+              history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
+              renderResults(data); 
+            } catch (err) { 
+              resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
+            } finally { 
+              submitBtn.disabled = false; 
+              submitBtn.textContent = 'Launch Active Exploits'; 
+            }
           });
         }
-        submitBtn.disabled = true;
-        if (scanMode === "quick") {
-          try { const data = await (await fetch("/api/quickcheck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true }) })).json(); if (data.error) throw new Error(data.error); document.getElementById("quickCheckResult").style.display = 'block'; } catch {} finally { submitBtn.disabled = false; }
-        } else {
-          try { const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); if (data.error) throw new Error(data.error); history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); renderResults(data); } catch (err) { resultsEl.innerHTML = `<div class="card">${err.message}</div>`; } finally { submitBtn.disabled = false; }
+        
+        submitBtn.disabled = true; 
+        submitBtn.textContent = 'Analyzing...';
+        resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px; color: var(--text-secondary);">Running comprehensive test suite...</div>';
+        try { 
+          const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); 
+          if (data.error) throw new Error(data.error); 
+          history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
+          renderResults(data); 
+        } catch (err) { 
+          resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
+        } finally { 
+          submitBtn.disabled = false; 
+          submitBtn.textContent = 'Run Standard Audit';
         }
       });
     });
