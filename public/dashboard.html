@@ -5,9 +5,111 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Dashboard</title>
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    /* Dashboard Specific UI Elements */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 2.5fr;
+      gap: 24px;
+      align-items: start;
+    }
+    
+    @media (max-width: 768px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+
+    .stat-block {
+      padding: 20px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+      margin: 8px 0 4px;
+      line-height: 1;
+    }
+
+    /* iOS-Style Smooth Toggles */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 26px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--surface-border-hover);
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 34px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: var(--brand-emerald);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    /* Monitor Row Transitions */
+    .monitor-row {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background-color 0.3s ease, opacity 0.3s ease;
+    }
+    
+    .monitor-row.inactive {
+      background: rgba(0,0,0,0.25);
+      opacity: 0.6;
+    }
+    
+    .monitor-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      display: block;
+      margin-bottom: 4px;
+      transition: color 0.3s ease;
+    }
+    
+    .monitor-row.inactive .monitor-title {
+      color: var(--text-tertiary);
+      text-decoration: line-through;
+    }
+  </style>
 </head>
 <body>
-  <div class="app-container">
+  <div class="app-container" style="max-width: 1100px;">
     <!-- Main Navigation Bar -->
     <nav class="app-nav">
       <a href="/" class="nav-brand">
@@ -15,41 +117,78 @@
         SiteScanner
       </a>
       <div style="display: flex; align-items: center; gap: 16px;">
-        <a href="/" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;">Run New Scan</a>
+        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent;">+ New Scan</a>
         <div id="authNavContainer" style="position: relative;"></div>
       </div>
     </nav>
 
-    <header style="margin-bottom: 40px;">
-      <h1 style="font-size: 2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Your Dashboard</h1>
-      <p style="color: var(--text-secondary);">Manage your security audits and automated email alerts.</p>
+    <header style="margin-bottom: 32px;">
+      <h1 style="font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.02em;">Command Center</h1>
+      <p style="color: var(--text-secondary);">Manage your security posture, active monitors, and billing.</p>
     </header>
 
-    <main>
-      <div class="card" style="padding: 0; overflow: hidden;">
-        <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
-          <h3 style="font-size: 1.05rem; color: #fff;">Active Monitored Targets</h3>
-          <span style="font-size: 0.8rem; color: var(--text-tertiary);">Weekly Scans</span>
+    <main class="dashboard-grid">
+      <!-- LEFT COLUMN: Account & Billing Overview -->
+      <aside>
+        <div class="card" style="padding: 24px;">
+          <h3 style="color: #fff; font-size: 1rem; margin-bottom: 16px;">Account Overview</h3>
+          
+          <div class="stat-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
+            <div id="planStatusUi" style="margin-top: 8px;">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+
+          <div class="stat-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Avg Security Score</span>
+            <div id="avgScoreDisplay" class="stat-value">--</div>
+            <span style="font-size: 0.8rem; color: var(--text-tertiary);">Across all targets</span>
+          </div>
+
+          <button class="cta-button" style="width: 100%; background: transparent; color: var(--text-secondary); border-color: var(--surface-border);">Manage Billing</button>
         </div>
-        
-        <div id="monitorsList">
-          <div style="padding: 48px; text-align: center; color: var(--text-tertiary);">
-            Loading your monitors...
+      </aside>
+
+      <!-- RIGHT COLUMN: The Monitor List -->
+      <section>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.05rem; color: #fff;">Automated Threat Monitors</h3>
+            <span style="font-size: 0.8rem; color: var(--text-tertiary); background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;" id="monitorCount">0 Active</span>
+          </div>
+          
+          <div id="monitorsList">
+            <div style="padding: 64px; text-align: center; color: var(--text-tertiary);">
+              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">Loading security telemetry...</span>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </main>
   </div>
 
   <script src="/render.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
-      // Wait for session to initialize
       if (window.authReady) await window.authReady;
+      if (!currentUser) return window.location.href = "/";
 
-      if (!currentUser) {
-        window.location.href = "/";
-        return;
+      // 1. Render Billing UI
+      const planUi = document.getElementById("planStatusUi");
+      if (currentUser.is_pro) {
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: var(--brand-purple); border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">PRO TIER</span>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">28 Days</strong></div>
+          <div style="width: 100%; height: 4px; background: var(--surface-border); border-radius: 2px; margin-top: 8px; overflow: hidden;">
+            <div style="width: 15%; height: 100%; background: var(--brand-purple);"></div>
+          </div>`;
+      } else {
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.1); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">FREE TIER</span>
+          <div style="font-size: 0.85rem; color: var(--text-tertiary);">Limited to manual passive scans.</div>
+          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 12px; padding: 8px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
+        `;
       }
 
       loadMonitors();
@@ -60,56 +199,95 @@
           const res = await fetch("/api/monitors");
           const monitors = await res.json();
 
+          // Empty State Design
           if (monitors.length === 0) {
+            document.getElementById("monitorCount").textContent = "0 Active";
             listEl.innerHTML = `
-              <div style="padding: 48px; text-align: center;">
-                <div style="font-size: 2rem; margin-bottom: 12px;">📭</div>
-                <strong style="color: #fff; display: block; margin-bottom: 8px;">No targets monitored yet</strong>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">Run a deep scan on a domain and click 'Enable Alerts' to see it here.</p>
+              <div style="padding: 64px 24px; text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 16px; opacity: 0.5;">📭</div>
+                <strong style="color: #fff; display: block; font-size: 1.1rem; margin-bottom: 8px;">No targets monitored yet</strong>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 300px; margin: 0 auto 24px;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
+                <a href="/" class="cta-button" style="display: inline-block; background: #fff; color: #090d16;">Scan a Domain</a>
               </div>`;
             return;
           }
 
-          listEl.innerHTML = monitors.map(m => `
-            <div style="padding: 20px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center; background: ${m.is_active ? 'transparent' : 'rgba(0,0,0,0.2)'};">
-              
+          // Calculate Dashboard Stats
+          const activeMonitors = monitors.filter(m => m.is_active);
+          document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
+          
+          if (activeMonitors.length > 0) {
+            const validScores = activeMonitors.map(m => m.last_score).filter(s => s !== null);
+            if (validScores.length > 0) {
+              const avg = Math.round(validScores.reduce((a,b)=>a+b,0) / validScores.length);
+              const avgEl = document.getElementById("avgScoreDisplay");
+              avgEl.textContent = avg;
+              avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
+            }
+          }
+
+          // Render Rows
+          listEl.innerHTML = monitors.map(m => {
+            const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+            const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
+            
+            return `
+            <div class="${rowClass}" id="monitor-row-${m.id}">
               <div>
-                <strong style="font-size: 1.1rem; color: ${m.is_active ? '#fff' : 'var(--text-tertiary)'}; display: block; margin-bottom: 4px;">${m.hostname}</strong>
-                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 12px;">
-                  <span>Last Score: <strong style="color: ${m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}">${m.last_score || 'Pending'}</strong></span>
-                  <span>Threshold: <strong style="color: #fff;">Drop below ${m.alert_threshold}</strong></span>
+                <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
+                  <span>Score: <strong style="color: ${scoreColor}">${m.last_score || 'Pending'}</strong></span>
+                  <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
+                  <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
                 </div>
               </div>
 
-              <div style="display: flex; align-items: center; gap: 16px;">
-                <a href="/report/${encodeURIComponent(m.hostname)}" class="cta-button" style="padding: 6px 12px; font-size: 0.8rem; background: transparent;">View Report</a>
+              <div style="display: flex; align-items: center; gap: 24px;">
+                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.85rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600;">View Report</a>
                 
-                <label style="display: flex; align-items: center; cursor: pointer; position: relative;">
-                  <input type="checkbox" class="toggle-monitor-btn" data-id="${m.id}" ${m.is_active ? 'checked' : ''} style="opacity: 0; position: absolute; width: 0; height: 0;">
-                  <div style="width: 44px; height: 24px; background: ${m.is_active ? 'var(--brand-emerald)' : 'var(--surface-border)'}; border-radius: 9999px; position: relative; transition: background 0.3s;">
-                    <div style="width: 18px; height: 18px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: ${m.is_active ? '23px' : '3px'}; transition: left 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
-                  </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
+                  <div class="toggle-slider"></div>
                 </label>
               </div>
+            </div>`;
+          }).join("");
 
-            </div>
-          `).join("");
-
-          // Attach toggle listeners
-          document.querySelectorAll('.toggle-monitor-btn').forEach(input => {
+          // --- OPTIMISTIC UI TOGGLE LOGIC ---
+          document.querySelectorAll('.optimistic-toggle').forEach(input => {
             input.addEventListener('change', async (e) => {
               const id = e.target.getAttribute('data-id');
               const isActive = e.target.checked;
+              const row = document.getElementById(`monitor-row-${id}`);
               
-              // Optimistic UI update handled by the CSS inline styles, just trigger backend
-              await fetch(`/api/monitors/${id}/toggle`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ isActive })
-              });
-              
-              // Reload to refresh styles smoothly
-              loadMonitors();
+              // 1. Instantly update the UI without waiting for the server
+              if (isActive) {
+                row.classList.remove('inactive');
+              } else {
+                row.classList.add('inactive');
+              }
+
+              // 2. Fire the network request silently in the background
+              try {
+                const res = await fetch(`/api/monitors/${id}/toggle`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ isActive })
+                });
+                
+                if (!res.ok) throw new Error("Toggle failed");
+                
+                // Recalculate stats silently after success
+                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
+                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+
+              } catch (err) {
+                // 3. Rollback the UI if the server failed
+                e.target.checked = !isActive;
+                if (!isActive) row.classList.remove('inactive');
+                else row.classList.add('inactive');
+                alert("Network error. Could not update monitor status.");
+              }
             });
           });
 
