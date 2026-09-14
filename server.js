@@ -178,7 +178,6 @@ app.post("/api/create-order", async (req, res) => {
 app.post("/api/verify-payment", async (req, res) => {
   const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${req.body.razorpay_order_id}|${req.body.razorpay_payment_id}`).digest("hex");
   if (hmac === req.body.razorpay_signature && req.user) { 
-    // --- UPDATED: Track exactly when the user's Pro cycle started ---
     await db.execute({ sql: `UPDATE users SET is_pro = 1, pro_started_at = CURRENT_TIMESTAMP WHERE id = ?`, args: [req.user.id] }); 
     return res.json({ success: true }); 
   }
@@ -341,7 +340,8 @@ app.post("/api/explain", async (req, res) => {
 
     const prompt = `Senior AppSec Engineer mode. Analyze this security scan for "${req.body.hostname}". Produce an ultra-concise, actionable remediation blueprint for ONLY the detected issues. Categorize by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Limit response to under 350 words. Format cleanly using markdown. Scan findings: ${JSON.stringify(payloadContext)}`;
     
-    for (const model of ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-pro"]) {
+    // Fallback loop with real Google Generative AI production models
+    for (const model of ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]) {
       try {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 800 } }) });
         if (response.ok) { aiReport = (await response.json()).candidates?.[0]?.content?.parts?.[0]?.text || null; if (aiReport) { aiError = null; break; } } else { aiError = `Model ${model} failed.`; }
