@@ -69,7 +69,6 @@ async function validatePublicHostname(hostname) {
   return true;
 }
 
-// ---------- GitHub Dispatch Helper ----------
 async function dispatchGitHubScan(hostname) {
   const owner = process.env.GITHUB_OWNER;
   const repo = process.env.GITHUB_REPO;
@@ -77,31 +76,17 @@ async function dispatchGitHubScan(hostname) {
   const appBaseUrl = process.env.APP_BASE_URL;
   const webhookSecret = process.env.SCAN_WEBHOOK_SECRET;
 
-  if (!owner || !repo || !pat || !appBaseUrl || !webhookSecret) {
-    throw new Error("Missing GitHub Action worker configuration in environment variables.");
-  }
-
+  if (!owner || !repo || !pat || !appBaseUrl || !webhookSecret) { throw new Error("Missing GitHub Action worker configuration in environment variables."); }
   const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
   const signature = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
 
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${pat}`,
-      "Accept": "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "User-Agent": "SiteScanner-Backend",
-    },
-    body: JSON.stringify({
-      event_type: "active_dast_scan",
-      client_payload: { hostname, callback_url: callbackUrl, signature },
-    }),
+    headers: { "Authorization": `Bearer ${pat}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "SiteScanner-Backend" },
+    body: JSON.stringify({ event_type: "active_dast_scan", client_payload: { hostname, callback_url: callbackUrl, signature } }),
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`GitHub API Error: ${response.status} - ${errText}`);
-  }
+  if (!response.ok) { const errText = await response.text(); throw new Error(`GitHub API Error: ${response.status} - ${errText}`); }
 }
 
 // ---------- Checkers ----------
@@ -189,7 +174,6 @@ app.post("/api/verification/generate", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro account required." });
   try { res.json({ success: true, ...await getOrGenerateVerificationToken(req.user.id, req.body.hostname) }); } catch (err) { res.status(500).json({ error: "Failed to generate token." }); }
 });
-
 app.post("/api/verification/check", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized." });
   const { hostname } = req.body;
@@ -222,28 +206,57 @@ app.post("/api/verification/check", async (req, res) => {
 // ---------- Monitors & Toggles ----------
 app.post("/api/monitors", async (req, res) => { if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); res.json({ success: true }); });
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
-
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } 
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-
+// ---------- PDF Generation ----------
 app.get("/api/download-pdf/:hostname", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro plan required" });
   let browser = null;
   try {
     browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage(); await page.setViewport({ width: 1200, height: 1600 });
+    
+    // Inject the user's auth token into the headless browser so it views the page as a PRO user
+    if (req.cookies && req.cookies.token) {
+      await page.setCookie({ name: 'token', value: req.cookies.token, domain: 'localhost' });
+    }
+
     await page.goto(`http://localhost:${process.env.PORT || 3000}/report/${req.params.hostname}`, { waitUntil: "networkidle0", timeout: 30000 });
-    await page.evaluate(() => { ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { const el = document.querySelector(s); if (el) el.style.display = 'none'; }); document.body.style.background = '#ffffff'; });
-    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" } }); await browser.close();
+    
+    // Instruct the headless browser to click the AI generation button and wait for it to render
+    await page.evaluate(async () => {
+      const explainBtn = document.getElementById('explainBtn');
+      if(explainBtn) {
+        explainBtn.click();
+        await new Promise(resolve => {
+          const observer = new MutationObserver(() => {
+            if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
+              observer.disconnect();
+              resolve();
+            }
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+          setTimeout(resolve, 15000); // 15 second max timeout
+        });
+      }
+      
+      // Hide interactive UI elements before snapping the PDF
+      ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { 
+        const el = document.querySelector(s); 
+        if (el) el.style.display = 'none'; 
+      }); 
+      document.body.style.background = '#ffffff';
+    });
+
+    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" } }); 
+    await browser.close();
     res.contentType("application/pdf"); res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_${req.params.hostname}.pdf"`); res.send(Buffer.from(pdfBuffer));
   } catch (err) { if (browser) await browser.close(); res.status(500).json({ error: err.message }); }
 });
@@ -295,10 +308,7 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
   const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
   const expectedSig = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
 
-  if (signature !== expectedSig) {
-    return res.status(401).json({ error: "Invalid signature verification." });
-  }
-
+  if (signature !== expectedSig) { return res.status(401).json({ error: "Invalid signature verification." }); }
   try {
     const existing = await getLatestScan(hostname);
     if (existing) {
@@ -307,10 +317,7 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
       await saveLatestScan(hostname, existing);
     }
     res.json({ success: true });
-  } catch (err) {
-    console.error("[Webhook Error]", err.message);
-    res.status(500).json({ error: "Failed to persist scan output" });
-  }
+  } catch (err) { res.status(500).json({ error: "Failed to persist scan output" }); }
 });
 
 app.post("/api/explain", async (req, res) => {
@@ -338,9 +345,9 @@ app.post("/api/explain", async (req, res) => {
       activeVulnerabilities: dastAlerts
     };
 
-    const prompt = `Senior AppSec Engineer mode. Analyze this security scan for "${req.body.hostname}". Produce an ultra-concise, actionable remediation blueprint for ONLY the detected issues. Categorize by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Limit response to under 350 words. Format cleanly using markdown. Scan findings: ${JSON.stringify(payloadContext)}`;
+    // Modified Prompt: Removed artificial brevity constraints so the AI finishes its thoughts.
+    const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}". Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
     
-    // Explicitly using the requested active model
     const modelsToTry = ["gemini-3.6-flash"];
     for (const model of modelsToTry) {
       try {
@@ -349,7 +356,8 @@ app.post("/api/explain", async (req, res) => {
           headers: { "Content-Type": "application/json" }, 
           body: JSON.stringify({ 
             contents: [{ parts: [{ text: prompt }] }], 
-            generationConfig: { temperature: 0.1, maxOutputTokens: 800 },
+            // Increased maxOutputTokens to prevent hard cut-offs
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
             safetySettings: [
               { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
               { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
