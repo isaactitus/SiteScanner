@@ -49,15 +49,19 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
       return window.showDnsVerificationModal(rawDomain, async () => {
         submitScanBtn.disabled = true; 
-        submitScanBtn.textContent = 'Injecting Payloads...';
-        resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px;"><strong style="color:var(--brand-emerald); display: block;">Verification Passed. Launching Active Vulnerability Exploits...</strong></div>';
+        
+        // Trigger the new beautiful loading animation!
+        if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
+
         try {
           const res = await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain }) });
           const data = await res.json();
+          clearInterval(window.activeLoadingInterval); // Stop the animation
           if (data.error) throw new Error(data.error);
           if (typeof renderResults === "function") renderResults(data, 'results'); 
           else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
         } catch (err) { 
+          clearInterval(window.activeLoadingInterval);
           resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; 
         } finally { 
           submitScanBtn.disabled = false; 
@@ -67,12 +71,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     submitScanBtn.disabled = true; 
-    submitScanBtn.textContent = 'Analyzing Target...'; 
-    resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px; color: var(--text-secondary);">Running comprehensive test suite...</div>';
+    
+    // Trigger the new beautiful loading animation!
+    if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
     
     try {
       const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain, ownershipConfirmed: confirmed, listPublicly: document.getElementById('listPublicly')?.checked }) });
       const data = await res.json(); 
+      clearInterval(window.activeLoadingInterval); // Stop the animation
       if (data.error) throw new Error(data.error);
       if (typeof renderResults === "function") { 
         renderResults(data, 'results'); 
@@ -81,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
       }
     } catch (err) { 
+      clearInterval(window.activeLoadingInterval);
       resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-rose); color: var(--brand-rose);">Scan Error: ${err.message}</div>`; 
     } finally { 
       submitScanBtn.disabled = false; 

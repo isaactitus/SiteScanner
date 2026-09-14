@@ -18,12 +18,31 @@
     </nav>
     <main>
       <section class="scan-card">
-        <div class="tab-group"><button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button><button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button></div>
-        <form id="scanForm"><div class="input-group"><input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required /><button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button></div><div class="scan-options"><label class="checkbox-label"><input type="checkbox" id="ownershipConfirmed" checked required /><span>I confirm authorization to scan this domain</span></label></div></form>
+        <div class="tab-group">
+          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
+          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
+        </div>
+        <form id="scanForm">
+          <div class="input-group">
+            <input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required />
+            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
+          </div>
+          <div class="scan-options">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ownershipConfirmed" checked required />
+              <span>I confirm authorization to scan this domain</span>
+            </label>
+          </div>
+        </form>
       </section>
-      <section id="results" class="results-area"><div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);"><p style="font-size: 0.95rem;">Retrieving security audit findings...</p></div></section>
+      <section id="results" class="results-area">
+        <div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);">
+          <p style="font-size: 0.95rem;">Retrieving security audit findings...</p>
+        </div>
+      </section>
     </main>
   </div>
+  
   <script src="/render.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
@@ -75,14 +94,18 @@
           if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
           return window.showDnsVerificationModal(url, async () => {
             submitBtn.disabled = true; 
-            submitBtn.textContent = 'Injecting Payloads...';
-            resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px;"><strong style="color:var(--brand-emerald); display: block;">Verification Passed. Launching Active Vulnerability Exploits...</strong></div>';
+            
+            // --- NEW: Trigger loading animation for DAST ---
+            if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
+
             try { 
               const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); 
+              clearInterval(window.activeLoadingInterval);
               if (data.error) throw new Error(data.error); 
               history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
               renderResults(data); 
             } catch (err) { 
+              clearInterval(window.activeLoadingInterval);
               resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
             } finally { 
               submitBtn.disabled = false; 
@@ -92,14 +115,18 @@
         }
         
         submitBtn.disabled = true; 
-        submitBtn.textContent = 'Analyzing...';
-        resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px; color: var(--text-secondary);">Running comprehensive test suite...</div>';
+        
+        // --- NEW: Trigger loading animation for Standard Audit ---
+        if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
+
         try { 
           const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); 
+          clearInterval(window.activeLoadingInterval);
           if (data.error) throw new Error(data.error); 
           history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
           renderResults(data); 
         } catch (err) { 
+          clearInterval(window.activeLoadingInterval);
           resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
         } finally { 
           submitBtn.disabled = false; 
