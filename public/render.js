@@ -116,7 +116,6 @@ function renderResults(data, targetId = "results") {
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
   const circumference = 2 * Math.PI * 40; const offset = circumference - (score / 100) * circumference;
 
-  // --- FIXED MATH: Accurately count all categories ---
   let critical = 0, warning = 0, passed = 0;
   
   if (!raw.tls?.valid) critical++; else passed++;
@@ -137,7 +136,6 @@ function renderResults(data, targetId = "results") {
 
   if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
 
-  // --- Quick Status Banner ---
   let quickStatusHtml = '';
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
   
@@ -149,10 +147,9 @@ function renderResults(data, targetId = "results") {
     quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">✅</span><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
   }
 
-  // Generate the Badges
-  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
+  // --- FIXED: Inject precise security score explicitly into top card and add explicit SVG sizing ---
+  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div><div style="margin-top: 6px; font-size: 0.95rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.15rem; margin-left: 4px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.8;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
-  // --- DRAWING THE UI CARDS WITH SEVERITY ATTRIBUTES ---
   if (raw.activeDastStatus) {
     html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
@@ -230,7 +227,6 @@ function renderResults(data, targetId = "results") {
   
   resultsEl.innerHTML = html;
 
-  // --- Filter cards by clicking summary pills ---
   let activeFilter = null;
   const filterCards = (severity) => {
     const cards = document.querySelectorAll(".result-card");
@@ -279,7 +275,6 @@ function renderResults(data, targetId = "results") {
       try {
         const resData = await (await fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw, hostname }) })).json();
         
-        // Parse Markdown to HTML if marked.js is loaded, otherwise fallback to plain text
         const parseMD = (text) => window.marked ? marked.parse(text) : text;
 
         let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
@@ -288,7 +283,6 @@ function renderResults(data, targetId = "results") {
           reportsHtml += `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(resData.aiReport)}</div></div>`;
         } else if (resData.aiError) {
           if (currentUser && currentUser.is_pro) {
-             // Show actual error to Pro users instead of paywall
              reportsHtml += `<div class="card" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${resData.aiError}</p></div>`;
           } else {
              reportsHtml += `<div class="card" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
@@ -326,9 +320,6 @@ function renderResults(data, targetId = "results") {
     });
   }
 
-  // ==========================================
-  // REAL-TIME POLLING LOOP
-  // ==========================================
   if (raw.activeDastStatus && raw.activeDastStatus.toLowerCase().includes("executing")) {
     setTimeout(async () => {
       try {
@@ -337,17 +328,12 @@ function renderResults(data, targetId = "results") {
           const freshData = await res.json();
           renderResults(freshData, targetId);
         }
-      } catch (err) {
-        console.error("[Polling Error]", err);
-      }
+      } catch (err) { console.error("[Polling Error]", err); }
     }, 10000); 
   }
 }
 window.authReady = checkAuthSession();
 
-// ==========================================
-// DYNAMIC LOADING ANIMATION STATE
-// ==========================================
 window.activeLoadingInterval = null;
 
 window.showLoadingState = function(container, mode) {
