@@ -208,10 +208,10 @@ app.post("/api/verification/check", async (req, res) => {
 
 // ---------- Monitors & Toggles (SMART ALERTS & CONSTRAINTS INTEGRATED) ----------
 
-// Helper function to verify user hasn't hit the 5 site limit or 24-hr cooldown
 async function checkMonitorConstraints(userId, hostname) {
   const monitors = await getUserMonitors(userId);
-  const activeCount = monitors.filter(m => m.is_active === 1).length;
+  // Only count other active domains towards the 5 monitor limit
+  const activeCount = monitors.filter(m => m.is_active === 1 && m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
   
   if (activeCount >= 5) {
     return { allowed: false, reason: "Limit reached: You can only monitor up to 5 websites simultaneously." };
@@ -254,14 +254,22 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
     const target = monitors.find(m => m.id == req.params.id);
     if (!target) return res.status(404).json({ error: "Monitor not found" });
 
-    if (req.body.isActive) {
+    const wasActive = Boolean(target.is_active);
+    const willBeActive = Boolean(req.body.isActive);
+
+    // Guard against duplicate triggers
+    if (wasActive === willBeActive) {
+      return res.json({ success: true, message: "No change" });
+    }
+
+    if (willBeActive) {
       const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
     
-    await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); 
+    await toggleMonitorStatus(req.user.id, req.params.id, willBeActive); 
     
-    if (req.body.isActive) {
+    if (willBeActive) {
        const latest = await getLatestScan(target.hostname);
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, target.hostname, latest.score);
@@ -278,14 +286,26 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
-    if (req.body.isActive) {
+    const monitors = await getUserMonitors(req.user.id);
+    const target = monitors.find(m => m.hostname.toLowerCase() === req.body.hostname.toLowerCase());
+    if (!target) return res.status(404).json({ error: "Monitor not found" });
+
+    const wasActive = Boolean(target.is_active);
+    const willBeActive = Boolean(req.body.isActive);
+
+    // Guard against duplicate triggers
+    if (wasActive === willBeActive) {
+      return res.json({ success: true, message: "No change" });
+    }
+
+    if (willBeActive) {
        const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
 
-    await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); 
+    await toggleMonitorByHostname(req.user.id, req.body.hostname, willBeActive); 
     
-    if (req.body.isActive) {
+    if (willBeActive) {
        const latest = await getLatestScan(req.body.hostname);
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, req.body.hostname, latest.score);

@@ -6,7 +6,6 @@
   <title>SiteScanner — Command Center</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    /* Premium Dashboard UI Elements */
     .dashboard-grid {
       display: grid;
       grid-template-columns: 320px 1fr;
@@ -132,7 +131,6 @@
 </head>
 <body>
   <div class="app-container" style="max-width: 1100px;">
-    <!-- Main Navigation Bar -->
     <nav class="app-nav">
       <a href="/" class="nav-brand">
         <span class="nav-brand-badge"></span>
@@ -156,9 +154,7 @@
           
           <div class="stat-block plan-block">
             <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
-            <div id="planStatusUi" style="margin-top: 12px;">
-              <!-- Injected via JS -->
-            </div>
+            <div id="planStatusUi" style="margin-top: 12px;"></div>
           </div>
 
           <div class="stat-block score-block">
@@ -196,14 +192,13 @@
       if (window.authReady) await window.authReady;
       if (!currentUser) return window.location.href = "/";
 
-      // 1. Render Billing UI (Dynamically calculated based on purchase date)
+      // 1. Render Billing UI
       const planUi = document.getElementById("planStatusUi");
       if (currentUser.is_pro) {
         let daysRemaining = 30;
         let progressPercent = 0;
         
         if (currentUser.pro_started_at) {
-          // Robust Date parsing for SQLite timestamps
           let dbDateStr = currentUser.pro_started_at;
           if (!dbDateStr.includes("T")) dbDateStr = dbDateStr.replace(" ", "T");
           if (!dbDateStr.endsWith("Z")) dbDateStr += "Z";
@@ -212,8 +207,6 @@
           if (!isNaN(startDate.getTime())) {
             const now = new Date();
             const diffDays = Math.max(0, (now - startDate) / (1000 * 60 * 60 * 24));
-            
-            // Standard rolling 30-day billing cycle calculation
             const cycleDay = diffDays % 30; 
             daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
             progressPercent = Math.round((cycleDay / 30) * 100);
@@ -242,7 +235,6 @@
           const res = await fetch("/api/monitors");
           const monitors = await res.json();
 
-          // Empty State Design
           if (monitors.length === 0) {
             document.getElementById("monitorCount").textContent = "0 Active";
             listEl.innerHTML = `
@@ -255,7 +247,6 @@
             return;
           }
 
-          // Calculate Dashboard Stats
           const activeMonitors = monitors.filter(m => m.is_active);
           document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
           
@@ -270,7 +261,7 @@
             }
           }
 
-          // Render Rows
+          // Render rows using data-active to prevent browser checkbox inversion bugs
           listEl.innerHTML = monitors.map(m => {
             const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
             const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
@@ -290,24 +281,25 @@
                 <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
                 
                 <label class="toggle-switch">
-                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
+                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" data-active="${m.is_active ? '1' : '0'}" ${m.is_active ? 'checked' : ''}>
                   <div class="toggle-slider"></div>
                 </label>
               </div>
             </div>`;
           }).join("");
 
-          // --- SMART UI TOGGLE LOGIC ---
+          // --- ROBUST UI TOGGLE CONTROLLER ---
           document.querySelectorAll('.optimistic-toggle').forEach(input => {
-            input.addEventListener('click', async (e) => {
-              e.preventDefault(); 
-              const id = e.target.getAttribute('data-id');
-              const hostname = document.getElementById(`title-${id}`).textContent;
-              const willBeActive = !e.target.checked; 
+            input.addEventListener('click', (e) => {
+              e.preventDefault(); // Stop native checkbox flipping
+
+              const id = input.getAttribute('data-id');
+              const hostname = document.getElementById(`title-${id}`).textContent.trim();
+              const isCurrentlyActive = input.getAttribute('data-active') === '1';
               const row = document.getElementById(`monitor-row-${id}`);
 
-              if (!willBeActive) {
-                // SHOW WARNING POPUP MODAL FOR DASHBOARD
+              if (isCurrentlyActive) {
+                // Monitor is active -> user wants to turn it OFF
                 if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
                 const modalHtml = `
                   <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
@@ -329,39 +321,43 @@
                 };
 
                 document.getElementById("confirmDisableBtn").onclick = async () => {
-                   document.getElementById("disableModal").remove();
-                   await executeToggle(id, false, e.target, row);
+                  document.getElementById("disableModal").remove();
+                  await executeToggle(id, false, input, row);
                 };
               } else {
-                // Instantly turn ON
-                await executeToggle(id, true, e.target, row);
+                // Monitor is inactive -> user wants to turn it ON
+                executeToggle(id, true, input, row);
               }
             });
           });
 
-          // Helper function to process the API request
-          async function executeToggle(id, isActive, checkboxEl, rowEl) {
-             checkboxEl.checked = isActive; 
-             if (isActive) rowEl.classList.remove('inactive');
-             else rowEl.classList.add('inactive');
+          async function executeToggle(id, willBeActive, checkboxEl, rowEl) {
+            checkboxEl.checked = willBeActive;
+            if (willBeActive) rowEl.classList.remove('inactive');
+            else rowEl.classList.add('inactive');
 
-             try {
-                const res = await fetch(`/api/monitors/${id}/toggle`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ isActive })
-                });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
+            try {
+              const res = await fetch(`/api/monitors/${id}/toggle`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isActive: willBeActive })
+              });
+              const data = await res.json();
+              if (!res.ok || data.error) throw new Error(data.error || "Failed to update monitor status");
 
-                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
-                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
-             } catch (err) {
-                alert(err.message);
-                checkboxEl.checked = !isActive;
-                if (!isActive) rowEl.classList.remove('inactive');
-                else rowEl.classList.add('inactive');
-             }
+              checkboxEl.setAttribute('data-active', willBeActive ? '1' : '0');
+              checkboxEl.checked = willBeActive;
+
+              const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
+              document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+
+            } catch (err) {
+              alert(err.message);
+              const prevActive = checkboxEl.getAttribute('data-active') === '1';
+              checkboxEl.checked = prevActive;
+              if (prevActive) rowEl.classList.remove('inactive');
+              else rowEl.classList.add('inactive');
+            }
           }
 
         } catch (err) {
