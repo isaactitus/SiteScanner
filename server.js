@@ -465,4 +465,9 @@ app.get("/api/report/:hostname", async (req, res) => { const data = await getLat
 app.get("/api/recent", async (req, res) => { res.json(await getPublicFeed()); });
 app.get("/report/:hostname", (req, res) => { res.sendFile(path.join(__dirname, "public", "report.html")); });
 
+// ---------- Keep-Alive Route for Render/Cron-job.org ----------
+app.get("/api/cron/tick", (req, res) => {
+  res.json({ status: "alive", timestamp: new Date().toISOString() });
+});
+
 app.listen(process.env.PORT || 3000, () => { console.log(`Running on port ${process.env.PORT || 3000}`); initCronJobs(runScanPipeline); });
