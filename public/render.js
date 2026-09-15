@@ -265,11 +265,24 @@ function renderResults(data, targetId = "results") {
 
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", () => window.location.reload());
-      const btn = document.getElementById("exportPdfBtn"); btn.disabled = true; btn.textContent = "Generating PDF...";
-      try { const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`)).blob(); const url = window.URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SiteScanner_${hostname}.pdf`; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url); } catch { alert("PDF Export Error"); } finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
+      const btn = document.getElementById("exportPdfBtn"); 
+      btn.disabled = true; 
+      btn.textContent = "Generating Corporate PDF...";
+      try { 
+        const hasAi = document.querySelector('.ai-card') ? '?ai=true' : '';
+        const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}${hasAi}`)).blob(); 
+        const url = window.URL.createObjectURL(blob); 
+        const a = document.createElement("a"); 
+        a.href = url; 
+        a.download = `SiteScanner_Executive_Audit_${hostname}.pdf`; 
+        document.body.appendChild(a); 
+        a.click(); 
+        a.remove(); 
+        window.URL.revokeObjectURL(url); 
+      } catch { alert("PDF Export Error"); } 
+      finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
     });
     
-    // --- UPDATED: SPLIT RULE-BASED AND AI GENERATION LOGIC ---
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
       const container = document.getElementById("reportContainer"); 
       container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Generating Standard Security Report...</div>';
@@ -278,7 +291,6 @@ function renderResults(data, targetId = "results") {
         const resData = await (await fetch("/api/explain", { 
           method: "POST", 
           headers: { "Content-Type": "application/json" }, 
-          // Fetch only the standard report to save tokens
           body: JSON.stringify({ raw, hostname, mode: 'standard' }) 
         })).json();
         
@@ -286,7 +298,6 @@ function renderResults(data, targetId = "results") {
 
         let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
         
-        // Inject the isolated AI execution trigger
         reportsHtml += `
           <div id="aiReportContainer">
             <div class="card" style="text-align: center; border: 1px dashed rgba(139,92,246,0.4); padding: 32px; background: rgba(139,92,246,0.05);">
@@ -299,7 +310,6 @@ function renderResults(data, targetId = "results") {
 
         container.innerHTML = reportsHtml;
         
-        // Bind the new AI extraction button
         document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
           const aiContainer = document.getElementById("aiReportContainer");
           aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--brand-purple);">Compiling AI security intelligence blueprint...</div>';

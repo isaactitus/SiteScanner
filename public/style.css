@@ -370,14 +370,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.hero-score-delta {
-  font-size: 0.85rem;
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .summary-badges {
   display: flex;
   gap: 12px;
@@ -485,16 +477,6 @@ body {
   font-weight: 700;
 }
 
-.ai-pill {
-  background: rgba(139, 92, 246, 0.2);
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  color: #ddd6fe;
-  font-size: 0.72rem;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-weight: 700;
-}
-
 .report {
   font-size: 0.92rem;
   color: #cbd5e1;
@@ -510,16 +492,9 @@ body {
   margin-bottom: 0.5em;
   line-height: 1.3;
 }
-.report p {
-  margin-bottom: 1em;
-}
-.report ul, .report ol {
-  padding-left: 24px;
-  margin-bottom: 1em;
-}
-.report li {
-  margin-bottom: 0.4em;
-}
+.report p { margin-bottom: 1em; }
+.report ul, .report ol { padding-left: 24px; margin-bottom: 1em; }
+.report li { margin-bottom: 0.4em; }
 .report code {
   background: rgba(255, 255, 255, 0.1);
   padding: 2px 6px;
@@ -543,121 +518,100 @@ body {
 }
 
 /* ==========================================================================
-   PRINT / PDF AUDIT EXPORT STYLESHEET
+   ENTERPRISE PRINT / PDF AUDIT EXPORT STYLESHEET (WHITEPAPER FORMAT)
    ========================================================================== */
 @media print {
-  /* Override CSS variables to force light mode for clean PDF exports */
   :root {
     --bg: #ffffff !important;
     --surface: #ffffff !important;
+    --surface-border: #cbd5e1 !important;
     --surface-subtle: #f8fafc !important;
-    --surface-border: #e2e8f0 !important;
-    --surface-border-hover: #cbd5e1 !important;
     --text-primary: #0f172a !important;
     --text-secondary: #334155 !important;
-    --text-tertiary: #64748b !important;
+    --text-tertiary: #475569 !important;
   }
-
-  @page {
-    margin: 1.2cm;
-    size: A4 portrait;
-  }
-
-  body {
+  
+  body, html {
     background: #ffffff !important;
     color: #0f172a !important;
-    font-size: 11pt;
-  }
-
-  /* Force background SVG strokes to render in PDF */
-  svg {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* Hide interactive scan controls, header buttons, inputs, & tickers */
-  .app-nav,
-  .hero,
-  .scan-card,
-  .feed-card,
-  .action-grid,
-  #quickCheckResult,
-  #tabGroup,
-  .cta-button {
+  .app-nav, .hero, .scan-card, .feed-card, .action-grid, #monitorFeedback, .tab-group {
     display: none !important;
   }
 
-  .app-container {
-    max-width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
+  /* Industry-Level Card Formatting */
   .card {
     background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
+    border: 1px solid #cbd5e1 !important;
     box-shadow: none !important;
     color: #0f172a !important;
-    margin-bottom: 16px !important;
-    break-inside: auto !important; 
+    margin-bottom: 24px !important;
+    padding: 24px !important;
+    border-radius: 4px !important;
+    break-inside: auto !important;
   }
 
+  /* Executive Cover Header */
   .hero-grade-card {
     background: #f8fafc !important;
-    border: 1px solid #cbd5e1 !important;
+    border: 2px solid #e2e8f0 !important;
+    border-left: 6px solid #0f172a !important;
+    break-inside: avoid !important;
   }
 
-  .hero-score-title {
+  /* Force all headings and text to be dark for visibility */
+  h1, h2, h3, h4, h5, strong, span, div, p, li {
     color: #0f172a !important;
   }
 
-  .grade-ring-bg {
-    stroke: #e2e8f0 !important;
+  .report h3 {
+    margin-top: 28px !important;
+    padding-bottom: 8px !important;
+    border-bottom: 2px solid #e2e8f0 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
-  .result-card, .result-item {
-     break-inside: avoid !important;
-  }
+  /* High contrast status badges for whitepaper readability */
+  .status-badge { border: 1px solid #cbd5e1 !important; }
+  .status-ok { background: #ecfdf5 !important; color: #059669 !important; border-color: #a7f3d0 !important;}
+  .status-warn { background: #fffbeb !important; color: #d97706 !important; border-color: #fde68a !important;}
+  .status-bad { background: #fef2f2 !important; color: #e11d48 !important; border-color: #fecaca !important;}
 
-  .result-item {
-    border-bottom: 1px solid #f1f5f9 !important;
-    color: #1e293b !important;
-  }
-
-  .status-ok {
-    background: #ecfdf5 !important;
-    color: #065f46 !important;
-    border: 1px solid #a7f3d0 !important;
-  }
-  .status-warn {
-    background: #fffbeb !important;
-    color: #92400e !important;
-    border: 1px solid #fde68a !important;
-  }
-  .status-bad {
-    background: #fef2f2 !important;
-    color: #991b1b !important;
-    border: 1px solid #fecaca !important;
-  }
-
+  /* Force AI Report onto a completely new dedicated page */
   .ai-card {
-    background: #faf5ff !important;
-    border: 1px solid #d8b4fe !important;
-    color: #1e1b4b !important;
+    break-before: page !important;
+    border-top: 6px solid #7c3aed !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
   }
 
-  .ai-header-title {
-    color: #4c1d95 !important;
+  .ai-header-title span {
+    color: #7c3aed !important;
+    font-size: 1.5rem !important;
   }
 
-  .report {
-    color: #1e293b !important;
-  }
-
+  /* Complex Corporate Code Blocks */
   pre {
-    background: #f1f5f9 !important;
+    background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
+    border-left: 4px solid #0284c7 !important;
     color: #0f172a !important;
-    break-inside: avoid;
+    white-space: pre-wrap !important;
+    padding: 16px !important;
+    break-inside: avoid !important;
   }
+
+  code { color: #0284c7 !important; font-weight: 700 !important; }
+
+  /* Ensure the SVG circle is visible */
+  svg {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .grade-ring-bg { stroke: #e2e8f0 !important; }
 }

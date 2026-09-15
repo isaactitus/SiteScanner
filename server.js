@@ -220,7 +220,9 @@ app.patch("/api/monitors/toggle-domain", async (req, res) => {
 // ---------- PDF Generation ----------
 app.get("/api/download-pdf/:hostname", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro plan required" });
+  const includeAi = req.query.ai === 'true';
   let browser = null;
+  
   try {
     browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage(); 
@@ -231,33 +233,34 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
     }
 
     await page.goto(`http://localhost:${process.env.PORT || 3000}/report/${req.params.hostname}`, { waitUntil: "networkidle0", timeout: 30000 });
-    
     await page.waitForSelector('#explainBtn', { timeout: 10000 }).catch(() => {});
 
-    await page.evaluate(async () => {
+    await page.evaluate(async (includeAi) => {
       const explainBtn = document.getElementById('explainBtn');
       if(explainBtn) {
         explainBtn.click();
-        
-        // --- NEW: Wait for the standard report to populate and the AI button to appear ---
         await new Promise(r => setTimeout(r, 1500));
         
-        const aiBtn = document.getElementById('generateAiBtn');
-        if (aiBtn) {
-            aiBtn.click();
-            await new Promise(resolve => {
-              if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
-              
-              const observer = new MutationObserver(() => {
-                if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
-                  observer.disconnect();
-                  resolve();
-                }
-              });
-              observer.observe(document.body, { childList: true, subtree: true });
-              setTimeout(resolve, 20000); 
-            });
-            await new Promise(r => setTimeout(r, 1000)); // Paint buffer
+        if (includeAi) {
+            const aiBtn = document.getElementById('generateAiBtn');
+            if (aiBtn) {
+                aiBtn.click();
+                await new Promise(resolve => {
+                  if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
+                  const observer = new MutationObserver(() => {
+                    if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
+                      observer.disconnect();
+                      resolve();
+                    }
+                  });
+                  observer.observe(document.body, { childList: true, subtree: true });
+                  setTimeout(resolve, 25000); 
+                });
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        } else {
+            const aiContainer = document.getElementById('aiReportContainer');
+            if (aiContainer) aiContainer.remove();
         }
       }
       
@@ -266,21 +269,21 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
         if (el) el.style.display = 'none'; 
       }); 
       
-      document.body.style.background = '#090d16';
-    });
+      document.body.style.background = '#ffffff';
+    }, includeAi);
 
     const pdfBuffer = await page.pdf({ 
       format: "A4", 
       printBackground: true, 
       displayHeaderFooter: true,
-      headerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;"><span>SiteScanner // Automated Threat Intelligence</span><span style="color: #f43f5e; font-weight: 700; letter-spacing: 1px;">STRICTLY CONFIDENTIAL</span></div>`,
-      footerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;"><span>Target Environment: ${req.params.hostname}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
+      headerTemplate: `<div style="width: 100%; font-size: 10px; color: #475569; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; text-transform: uppercase; font-weight: 700;"><span>Enterprise Security Audit Blueprint</span><span style="color: #e11d48;">CONFIDENTIAL / RESTRICTED</span></div>`,
+      footerTemplate: `<div style="width: 100%; font-size: 10px; color: #475569; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-top: 2px solid #e2e8f0; padding-top: 6px;"><span>Target: ${req.params.hostname}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
       margin: { top: "2.5cm", right: "1.2cm", bottom: "2.5cm", left: "1.2cm" } 
     }); 
     
     await browser.close();
     res.contentType("application/pdf"); 
-    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${req.params.hostname}.pdf"`); 
+    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Executive_Audit_${req.params.hostname}.pdf"`); 
     res.send(Buffer.from(pdfBuffer));
   } catch (err) { 
     if (browser) await browser.close(); 
@@ -359,13 +362,11 @@ app.post("/api/explain", async (req, res) => {
   
   const mode = req.body.mode || 'all'; 
 
-  // --- NEW: Immediately return standard report to save tokens ---
   if (mode === 'standard') {
     const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
     return res.json({ ruleBasedReport });
   }
 
-  // --- NEW: Return cached AI subset if AI is specifically requested ---
   if (aiCache.has(req.body.hostname)) {
     const cached = aiCache.get(req.body.hostname);
     if (mode === 'ai') return res.json({ aiReport: cached.aiReport, aiError: cached.aiError });
@@ -428,7 +429,6 @@ app.post("/api/explain", async (req, res) => {
         aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
         aiError = null; 
         
-        // Cache the specific AI response
         const finalAiResponse = { aiReport, aiError };
         aiCache.set(req.body.hostname, finalAiResponse);
         setTimeout(() => aiCache.delete(req.body.hostname), 3600000);
