@@ -238,32 +238,54 @@ app.get("/api/download-pdf/:hostname", async (req, res) => {
       const explainBtn = document.getElementById('explainBtn');
       if(explainBtn) {
         explainBtn.click();
-        await new Promise(resolve => {
-          if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
-          
-          const observer = new MutationObserver(() => {
-            if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
-              observer.disconnect();
-              resolve();
-            }
-          });
-          observer.observe(document.body, { childList: true, subtree: true });
-          setTimeout(resolve, 20000); 
-        });
-        await new Promise(r => setTimeout(r, 1000));
+        
+        // --- NEW: Wait for the standard report to populate and the AI button to appear ---
+        await new Promise(r => setTimeout(r, 1500));
+        
+        const aiBtn = document.getElementById('generateAiBtn');
+        if (aiBtn) {
+            aiBtn.click();
+            await new Promise(resolve => {
+              if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
+              
+              const observer = new MutationObserver(() => {
+                if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
+                  observer.disconnect();
+                  resolve();
+                }
+              });
+              observer.observe(document.body, { childList: true, subtree: true });
+              setTimeout(resolve, 20000); 
+            });
+            await new Promise(r => setTimeout(r, 1000)); // Paint buffer
+        }
       }
       
       ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { 
         const el = document.querySelector(s); 
         if (el) el.style.display = 'none'; 
       }); 
-      document.body.style.background = '#ffffff';
+      
+      document.body.style.background = '#090d16';
     });
 
-    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" } }); 
+    const pdfBuffer = await page.pdf({ 
+      format: "A4", 
+      printBackground: true, 
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;"><span>SiteScanner // Automated Threat Intelligence</span><span style="color: #f43f5e; font-weight: 700; letter-spacing: 1px;">STRICTLY CONFIDENTIAL</span></div>`,
+      footerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;"><span>Target Environment: ${req.params.hostname}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
+      margin: { top: "2.5cm", right: "1.2cm", bottom: "2.5cm", left: "1.2cm" } 
+    }); 
+    
     await browser.close();
-    res.contentType("application/pdf"); res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_${req.params.hostname}.pdf"`); res.send(Buffer.from(pdfBuffer));
-  } catch (err) { if (browser) await browser.close(); res.status(500).json({ error: err.message }); }
+    res.contentType("application/pdf"); 
+    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${req.params.hostname}.pdf"`); 
+    res.send(Buffer.from(pdfBuffer));
+  } catch (err) { 
+    if (browser) await browser.close(); 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // ---------- Scan Routes ----------
@@ -335,97 +357,108 @@ app.post("/api/webhooks/dast-callback", async (req, res) => {
 app.post("/api/explain", async (req, res) => {
   if (!req.body.raw || !req.body.hostname) return res.status(400).json({ error: "Missing scan data." });
   
+  const mode = req.body.mode || 'all'; 
+
+  // --- NEW: Immediately return standard report to save tokens ---
+  if (mode === 'standard') {
+    const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
+    return res.json({ ruleBasedReport });
+  }
+
+  // --- NEW: Return cached AI subset if AI is specifically requested ---
   if (aiCache.has(req.body.hostname)) {
-    return res.json(aiCache.get(req.body.hostname));
+    const cached = aiCache.get(req.body.hostname);
+    if (mode === 'ai') return res.json({ aiReport: cached.aiReport, aiError: cached.aiError });
+    return res.json(cached);
+  }
+
+  const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
+  
+  if (!req.user || !req.user.is_pro) return res.json({ ruleBasedReport, aiReport: null, aiError: "Pro upgrade required." });
+  if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
+  
+  let aiReport = null, aiError = null;
+  let dastAlerts = [];
+  if (req.body.raw.activeDastReport?.site?.[0]?.alerts) {
+    dastAlerts = req.body.raw.activeDastReport.site[0].alerts.map(a => ({
+      name: a.name,
+      risk: a.riskcode === "3" ? "High" : a.riskcode === "2" ? "Medium" : "Low",
+      description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) 
+    }));
+  }
+
+  const payloadContext = {
+    missingHeaders: req.body.raw.headers?.missing || [],
+    exposedFiles: req.body.raw.exposedFiles || [],
+    emailAuth: req.body.raw.emailAuth || {},
+    activeVulnerabilities: dastAlerts
+  };
+
+  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}. Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
+  
+  const model = "gemini-3.6-flash";
+  const maxRetries = 3;
+  let attempt = 1;
+
+  while (attempt <= maxRetries) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ 
+          contents: [{ parts: [{ text: prompt }] }], 
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+          safetySettings: [
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
+          ]
+        }) 
+      });
+      
+      if (response.ok) { 
+        const jsonRes = await response.json();
+        if (jsonRes.candidates?.[0]?.finishReason === "SAFETY") {
+           aiError = "Google API blocked the response due to safety filters.";
+           break;
+        }
+        aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
+        aiError = null; 
+        
+        // Cache the specific AI response
+        const finalAiResponse = { aiReport, aiError };
+        aiCache.set(req.body.hostname, finalAiResponse);
+        setTimeout(() => aiCache.delete(req.body.hostname), 3600000);
+        break; 
+      } else { 
+        const errorData = await response.json();
+        const isRateLimit = response.status === 429 || response.status === 503;
+        
+        if (isRateLimit && attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+          attempt++;
+          continue;
+        }
+        
+        aiError = `Google API Error (${model}): ${errorData.error?.message || response.statusText}`; 
+        break; 
+      }
+    } catch (err) { 
+      if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+          attempt++;
+          continue;
+      }
+      aiError = `Network Error (${model}): ${err.message}`; 
+      break;
+    }
   }
   
-  try {
-    const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
-    
-    if (!req.user || !req.user.is_pro) return res.json({ ruleBasedReport, aiReport: null, aiError: "Pro upgrade required." });
-    if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
-    
-    let aiReport = null, aiError = null;
-    let dastAlerts = [];
-    if (req.body.raw.activeDastReport?.site?.[0]?.alerts) {
-      dastAlerts = req.body.raw.activeDastReport.site[0].alerts.map(a => ({
-        name: a.name,
-        risk: a.riskcode === "3" ? "High" : a.riskcode === "2" ? "Medium" : "Low",
-        description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) 
-      }));
-    }
-
-    const payloadContext = {
-      missingHeaders: req.body.raw.headers?.missing || [],
-      exposedFiles: req.body.raw.exposedFiles || [],
-      emailAuth: req.body.raw.emailAuth || {},
-      activeVulnerabilities: dastAlerts
-    };
-
-    const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}". Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
-    
-    const model = "gemini-3.6-flash";
-    const maxRetries = 3;
-    let attempt = 1;
-
-    // --- NEW: Exponential Backoff Retry Loop ---
-    while (attempt <= maxRetries) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { 
-          method: "POST", 
-          headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ 
-            contents: [{ parts: [{ text: prompt }] }], 
-            generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-            safetySettings: [
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
-            ]
-          }) 
-        });
-        
-        if (response.ok) { 
-          const jsonRes = await response.json();
-          if (jsonRes.candidates?.[0]?.finishReason === "SAFETY") {
-             aiError = "Google API blocked the response due to safety filters.";
-             break;
-          }
-          aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
-          aiError = null; 
-          
-          const finalResponse = { ruleBasedReport, aiReport, aiError };
-          aiCache.set(req.body.hostname, finalResponse);
-          setTimeout(() => aiCache.delete(req.body.hostname), 3600000);
-          break; 
-        } else { 
-          const errorData = await response.json();
-          const isRateLimit = response.status === 429 || response.status === 503;
-          
-          if (isRateLimit && attempt < maxRetries) {
-            // Wait before trying again (2 seconds, then 4 seconds)
-            await new Promise(r => setTimeout(r, 2000 * attempt));
-            attempt++;
-            continue;
-          }
-          
-          aiError = `Google API Error (${model}): ${errorData.error?.message || response.statusText}`; 
-          break; // Break on hard errors (like bad API key)
-        }
-      } catch (err) { 
-        if (attempt < maxRetries) {
-            await new Promise(r => setTimeout(r, 2000 * attempt));
-            attempt++;
-            continue;
-        }
-        aiError = `Network Error (${model}): ${err.message}`; 
-        break;
-      }
-    }
-    
-    res.json({ ruleBasedReport, aiReport, aiError });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  if (mode === 'ai') return res.json({ aiReport, aiError });
+  res.json({ ruleBasedReport, aiReport, aiError });
 });
 
 app.get("/api/report/:hostname", async (req, res) => { const data = await getLatestScan(req.params.hostname); if (!data) return res.status(404).json({ error: "No scan found." }); res.json(data); });
