@@ -3,11 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SiteScanner — Passive Security Architecture Audit</title>
+  <title>SiteScanner — Enterprise Security Auditing</title>
   <link rel="stylesheet" href="/style.css" />
-  <!-- Markdown Parser -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
-  <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -27,39 +25,43 @@
       </div>
     </nav>
 
-    <header class="hero">
-      <h1 class="hero-title">Passive Security Auditing.</h1>
-      <p class="hero-subtitle">Production-grade security health checks, real-time threat intelligence, and tailored remediation guidance.</p>
+    <header class="hero-premium">
+      <div class="hero-badge">✨ SiteScanner Engine 2.0 is live</div>
+      <h1 class="hero-title-premium">Security intelligence,<br>simplified.</h1>
+      <p class="hero-subtitle-premium">Enterprise-grade passive reconnaissance, active DAST, and AI-driven remediation blueprints for modern web applications.</p>
     </header>
 
     <main>
-      <!-- Unified Scanning Dock -->
-      <section class="scan-card">
-        <div class="tab-group">
-          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
-          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
+      <!-- Premium Omnibox Section -->
+      <section class="omnibox-container">
+        <div class="omnibox-tabs">
+          <button id="tabFull" class="omni-tab active" type="button">Standard Audit</button>
+          <button id="tabActive" class="omni-tab pro-tab" type="button">Active DAST (Pro)</button>
         </div>
 
-        <form id="scanForm">
-          <div class="input-group">
+        <form id="scanForm" class="omnibox-form">
+          <div class="omnibox-wrapper">
+            <span class="omnibox-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </span>
             <input 
               id="targetUrl" 
               type="text" 
-              class="scan-input" 
-              placeholder="example.com" 
+              class="omnibox-input" 
+              placeholder="Enter target domain (e.g., alelken.in)" 
               spellcheck="false" 
               autocomplete="off" 
               required 
             />
-            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
+            <button id="submitScanBtn" type="submit" class="omnibox-btn">Analyze Target</button>
           </div>
 
-          <div class="scan-options">
+          <div class="omnibox-options">
             <label class="checkbox-label">
               <input type="checkbox" id="ownershipConfirmed" checked required />
               <span>I confirm authorization to scan this domain</span>
             </label>
-            <label class="checkbox-label" id="publicFeedOption" style="display: inline-flex;">
+            <label class="checkbox-label" id="publicFeedOption">
               <input type="checkbox" id="listPublicly" checked>
               <span>List result in public recent scans</span>
             </label>
@@ -67,22 +69,53 @@
         </form>
       </section>
 
-      <!-- Recent Scans Live Ticker -->
-      <div class="feed-card" id="feedCard">
-        <span class="feed-title">Recent Audits:</span>
-        <div class="feed-items" id="recentList">
-          <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
+      <!-- Results Area (Injected via JS) -->
+      <section id="results" class="results-area"></section>
+
+      <!-- Default Homepage State: Bento Grid & Live Ticker -->
+      <div id="homepage-defaults">
+        <!-- Live Threat Feed Ticker -->
+        <div class="feed-card" id="feedCard">
+          <span class="feed-title">Live Telemetry:</span>
+          <div class="feed-items" id="recentList">
+            <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
+          </div>
+        </div>
+
+        <!-- SaaS Feature Bento Box -->
+        <div class="bento-grid">
+          <div class="bento-card">
+            <div class="bento-icon" style="color: var(--brand-cyan); background: rgba(6,182,212,0.1);">🛡️</div>
+            <h3 class="bento-title">Passive Reconnaissance</h3>
+            <p class="bento-desc">Instantly evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server.</p>
+          </div>
+          
+          <div class="bento-card bento-pro">
+            <div class="bento-icon" style="color: var(--brand-emerald); background: rgba(16,185,129,0.1);">⚔️</div>
+            <h3 class="bento-title">Active DAST Engine</h3>
+            <p class="bento-desc">Deploy authorized containerized exploitation payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
+          </div>
+
+          <div class="bento-card bento-ai">
+            <div class="bento-icon" style="color: var(--brand-purple); background: rgba(139,92,246,0.1);">✨</div>
+            <h3 class="bento-title">AI Remediation Blueprints</h3>
+            <p class="bento-desc">Generate tailored, highly-specific mitigation code and configuration snippets powered by Google Gemini advanced language models.</p>
+          </div>
         </div>
       </div>
-
-      <!-- Progressive / Standard Output Section -->
-      <section id="results" class="results-area"></section>
     </main>
   </div>
 
-  <!-- Razorpay Checkout Script -->
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script src="/app.js"></script>
+  
+  <script>
+    // Hide default homepage elements when a scan starts
+    document.getElementById('scanForm').addEventListener('submit', () => {
+      const defaults = document.getElementById('homepage-defaults');
+      if (defaults) defaults.style.display = 'none';
+    });
+  </script>
 </body>
 </html>
