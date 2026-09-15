@@ -3,35 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SiteScanner — Dashboard</title>
+  <title>SiteScanner — Command Center</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    /* Dashboard Specific UI Elements */
+    /* Premium Dashboard UI Elements */
     .dashboard-grid {
       display: grid;
-      grid-template-columns: 1fr 2.5fr;
-      gap: 24px;
+      grid-template-columns: 320px 1fr;
+      gap: 32px;
       align-items: start;
     }
     
-    @media (max-width: 768px) {
+    @media (max-width: 850px) {
       .dashboard-grid { grid-template-columns: 1fr; }
     }
 
     .stat-block {
-      padding: 20px;
-      background: rgba(255,255,255,0.02);
+      background: rgba(15, 23, 42, 0.4);
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-md);
+      padding: 24px;
       margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
     }
 
+    .stat-block:hover {
+      border-color: var(--surface-border-hover);
+    }
+
+    .stat-block::before {
+      content: ''; 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
+      width: 4px; 
+      height: 100%;
+    }
+
+    .stat-block.plan-block::before { background: var(--brand-purple); }
+    .stat-block.score-block::before { background: var(--brand-cyan); }
+
     .stat-value {
-      font-size: 2rem;
+      font-size: 3rem;
       font-weight: 800;
       color: #fff;
-      margin: 8px 0 4px;
+      margin: 12px 0 4px;
       line-height: 1;
+      font-family: var(--font-mono);
+      letter-spacing: -0.03em;
     }
 
     /* iOS-Style Smooth Toggles */
@@ -42,17 +63,14 @@
       height: 26px;
     }
     
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
     
     .toggle-slider {
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background-color: var(--surface-border-hover);
+      background-color: rgba(255,255,255,0.1);
+      border: 1px solid var(--surface-border);
       transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
       border-radius: 34px;
     }
@@ -60,27 +78,27 @@
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 20px;
-      width: 20px;
-      left: 3px;
-      bottom: 3px;
-      background-color: white;
+      height: 20px; width: 20px;
+      left: 2px; bottom: 2px;
+      background-color: var(--text-secondary);
       transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
       border-radius: 50%;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
     
     .toggle-switch input:checked + .toggle-slider {
-      background-color: var(--brand-emerald);
+      background-color: rgba(16, 185, 129, 0.2);
+      border-color: var(--brand-emerald);
     }
     
     .toggle-switch input:checked + .toggle-slider:before {
       transform: translateX(20px);
+      background-color: var(--brand-emerald);
+      box-shadow: 0 0 10px var(--brand-emerald);
     }
 
     /* Monitor Row Transitions */
     .monitor-row {
-      padding: 20px 24px;
+      padding: 24px 32px;
       border-bottom: 1px solid var(--surface-border);
       display: flex;
       justify-content: space-between;
@@ -88,17 +106,21 @@
       transition: background-color 0.3s ease, opacity 0.3s ease;
     }
     
+    .monitor-row:hover { background: rgba(255,255,255,0.02); }
+    .monitor-row:last-child { border-bottom: none; }
+    
     .monitor-row.inactive {
       background: rgba(0,0,0,0.25);
-      opacity: 0.6;
+      opacity: 0.5;
     }
     
     .monitor-title {
-      font-size: 1.1rem;
-      font-weight: 600;
+      font-size: 1.25rem;
+      font-weight: 700;
       color: #fff;
       display: block;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
+      font-family: var(--font-mono);
       transition: color 0.3s ease;
     }
     
@@ -117,45 +139,44 @@
         SiteScanner
       </a>
       <div style="display: flex; align-items: center; gap: 16px;">
-        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent;">+ New Scan</a>
+        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent; border-color: var(--surface-border);">+ New Scan</a>
         <div id="authNavContainer" style="position: relative;"></div>
       </div>
     </nav>
 
-    <header style="margin-bottom: 32px;">
-      <h1 style="font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.02em;">Command Center</h1>
-      <p style="color: var(--text-secondary);">Manage your security posture, active monitors, and billing.</p>
+    <header style="margin-bottom: 40px;">
+      <h1 style="font-size: 2.5rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.03em;">Command Center</h1>
+      <p style="color: var(--text-secondary); font-size: 1.05rem;">Manage your security posture, active telemetry monitors, and billing.</p>
     </header>
 
     <main class="dashboard-grid">
       <!-- LEFT COLUMN: Account & Billing Overview -->
       <aside>
-        <div class="card" style="padding: 24px;">
-          <h3 style="color: #fff; font-size: 1rem; margin-bottom: 16px;">Account Overview</h3>
+        <div class="card" style="padding: 0; background: transparent; border: none;">
           
-          <div class="stat-block">
+          <div class="stat-block plan-block">
             <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
-            <div id="planStatusUi" style="margin-top: 8px;">
+            <div id="planStatusUi" style="margin-top: 12px;">
               <!-- Injected via JS -->
             </div>
           </div>
 
-          <div class="stat-block">
-            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Avg Security Score</span>
+          <div class="stat-block score-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Fleet Security Score</span>
             <div id="avgScoreDisplay" class="stat-value">--</div>
-            <span style="font-size: 0.8rem; color: var(--text-tertiary);">Across all targets</span>
+            <span style="font-size: 0.85rem; color: var(--text-tertiary);">Average across monitored targets</span>
           </div>
 
-          <button class="cta-button" style="width: 100%; background: transparent; color: var(--text-secondary); border-color: var(--surface-border);">Manage Billing</button>
+          <button onclick="window.showBillingModal()" class="cta-button" style="width: 100%; background: rgba(15,23,42,0.6); color: #fff; border-color: var(--surface-border-hover);">Manage Billing</button>
         </div>
       </aside>
 
       <!-- RIGHT COLUMN: The Monitor List -->
       <section>
-        <div class="card" style="padding: 0; overflow: hidden;">
-          <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-size: 1.05rem; color: #fff;">Automated Threat Monitors</h3>
-            <span style="font-size: 0.8rem; color: var(--text-tertiary); background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;" id="monitorCount">0 Active</span>
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border-hover);">
+          <div style="background: rgba(15,23,42,0.8); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Automated Threat Monitors</h3>
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.1);" id="monitorCount">0 Active</span>
           </div>
           
           <div id="monitorsList">
@@ -168,6 +189,7 @@
     </main>
   </div>
 
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
@@ -181,31 +203,34 @@
         let progressPercent = 0;
         
         if (currentUser.pro_started_at) {
-          // SQLite CURRENT_TIMESTAMP returns UTC without a 'Z'. Add it to parse locally.
-          const dbDateStr = currentUser.pro_started_at.replace(" ", "T") + "Z";
+          // Robust Date parsing for SQLite timestamps
+          let dbDateStr = currentUser.pro_started_at;
+          if (!dbDateStr.includes("T")) dbDateStr = dbDateStr.replace(" ", "T");
+          if (!dbDateStr.endsWith("Z")) dbDateStr += "Z";
+          
           const startDate = new Date(dbDateStr);
-          const now = new Date();
-          
-          // Calculate elapsed days
-          const diffDays = Math.abs(now - startDate) / (1000 * 60 * 60 * 24);
-          
-          // Assuming a standard rolling 30-day billing cycle
-          const cycleDay = diffDays % 30; 
-          daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
-          progressPercent = Math.round((cycleDay / 30) * 100);
+          if (!isNaN(startDate.getTime())) {
+            const now = new Date();
+            const diffDays = Math.max(0, (now - startDate) / (1000 * 60 * 60 * 24));
+            
+            // Standard rolling 30-day billing cycle calculation
+            const cycleDay = diffDays % 30; 
+            daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
+            progressPercent = Math.round((cycleDay / 30) * 100);
+          }
         }
 
         planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: var(--brand-purple); border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">PRO TIER</span>
-          <div style="font-size: 0.85rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
-          <div style="width: 100%; height: 4px; background: var(--surface-border); border-radius: 2px; margin-top: 8px; overflow: hidden;">
-            <div style="width: ${progressPercent}%; height: 100%; background: var(--brand-purple);"></div>
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">PRO TIER</span>
+          <div style="font-size: 0.9rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
+          <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
+            <div style="width: ${progressPercent}%; height: 100%; background: linear-gradient(90deg, var(--brand-purple), #c4b5fd); border-radius: 3px;"></div>
           </div>`;
       } else {
         planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.1); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">FREE TIER</span>
-          <div style="font-size: 0.85rem; color: var(--text-tertiary);">Limited to manual passive scans.</div>
-          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 12px; padding: 8px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">FREE TIER</span>
+          <div style="font-size: 0.9rem; color: var(--text-tertiary); line-height: 1.5;">Limited to manual passive scans.</div>
+          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 16px; padding: 10px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
         `;
       }
 
@@ -221,11 +246,11 @@
           if (monitors.length === 0) {
             document.getElementById("monitorCount").textContent = "0 Active";
             listEl.innerHTML = `
-              <div style="padding: 64px 24px; text-align: center;">
-                <div style="font-size: 2.5rem; margin-bottom: 16px; opacity: 0.5;">📭</div>
-                <strong style="color: #fff; display: block; font-size: 1.1rem; margin-bottom: 8px;">No targets monitored yet</strong>
-                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 300px; margin: 0 auto 24px;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
-                <a href="/" class="cta-button" style="display: inline-block; background: #fff; color: #090d16;">Scan a Domain</a>
+              <div style="padding: 80px 24px; text-align: center;">
+                <div style="width: 64px; height: 64px; border-radius: 16px; background: rgba(16,185,129,0.1); color: var(--brand-emerald); display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 20px; border: 1px solid rgba(16,185,129,0.2);">🛡️</div>
+                <strong style="color: #fff; display: block; font-size: 1.25rem; margin-bottom: 12px;">No targets monitored yet</strong>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 320px; margin: 0 auto 32px; line-height: 1.6;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
+                <a href="/" class="cta-button" style="display: inline-flex; width: auto; background: #fff; color: #090d16;">Scan a Target Domain</a>
               </div>`;
             return;
           }
@@ -241,6 +266,7 @@
               const avgEl = document.getElementById("avgScoreDisplay");
               avgEl.textContent = avg;
               avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
+              avgEl.style.textShadow = `0 0 20px ${avgEl.style.color}`;
             }
           }
 
@@ -253,15 +279,15 @@
             <div class="${rowClass}" id="monitor-row-${m.id}">
               <div>
                 <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
-                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
-                  <span>Score: <strong style="color: ${scoreColor}">${m.last_score || 'Pending'}</strong></span>
+                <div style="font-size: 0.9rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
+                  <span>Last Score: <strong style="color: ${m.last_score ? scoreColor : 'var(--text-tertiary)'}">${m.last_score || 'Pending Scan'}</strong></span>
                   <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
                   <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
                 </div>
               </div>
 
-              <div style="display: flex; align-items: center; gap: 24px;">
-                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.85rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600;">View Report</a>
+              <div style="display: flex; align-items: center; gap: 32px;">
+                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
                 
                 <label class="toggle-switch">
                   <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
@@ -278,14 +304,9 @@
               const isActive = e.target.checked;
               const row = document.getElementById(`monitor-row-${id}`);
               
-              // 1. Instantly update the UI without waiting for the server
-              if (isActive) {
-                row.classList.remove('inactive');
-              } else {
-                row.classList.add('inactive');
-              }
+              if (isActive) row.classList.remove('inactive');
+              else row.classList.add('inactive');
 
-              // 2. Fire the network request silently in the background
               try {
                 const res = await fetch(`/api/monitors/${id}/toggle`, {
                   method: 'PATCH',
@@ -295,12 +316,10 @@
                 
                 if (!res.ok) throw new Error("Toggle failed");
                 
-                // Recalculate stats silently after success
                 const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
                 document.getElementById("monitorCount").textContent = `${activeCount} Active`;
 
               } catch (err) {
-                // 3. Rollback the UI if the server failed
                 e.target.checked = !isActive;
                 if (!isActive) row.classList.remove('inactive');
                 else row.classList.add('inactive');
@@ -314,6 +333,58 @@
         }
       }
     });
+
+    // --- BILLING MODAL LOGIC ---
+    window.showBillingModal = function() {
+      if (document.getElementById("billingModal")) document.getElementById("billingModal").remove();
+      
+      let startedDate = "Recently";
+      if (currentUser.pro_started_at) {
+         let dStr = currentUser.pro_started_at;
+         if (!dStr.includes("T")) dStr = dStr.replace(" ", "T");
+         if (!dStr.endsWith("Z")) dStr += "Z";
+         startedDate = new Date(dStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      }
+      
+      const modalHtml = `
+        <div id="billingModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+          <div class="card" style="max-width:480px; width:100%; border:1px solid rgba(139,92,246,0.4); box-shadow:0 0 40px -10px rgba(139,92,246,0.3); padding:32px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+              <h3 style="color:#fff; font-size:1.4rem; font-weight:800; letter-spacing: -0.02em;">Billing Management</h3>
+              <span style="padding:4px 10px; background:rgba(16,185,129,0.15); color:var(--brand-emerald); border-radius:6px; font-size:0.75rem; font-weight:700; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
+            </div>
+            
+            <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Current Plan</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">SiteScanner PRO</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Amount</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">₹499.00 / month</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Member Since</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">${startedDate}</span>
+              </div>
+            </div>
+
+            <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:28px;">To update your payment method or cancel your subscription, please use the secure Razorpay customer portal linked to your account.</p>
+            
+            <div style="display:flex; gap: 12px;">
+              <button id="portalBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); flex:1; font-weight:700;">Customer Portal</button>
+              <button id="closeBillingModal" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Close</button>
+            </div>
+          </div>
+        </div>`;
+      
+      document.body.insertAdjacentHTML("beforeend", modalHtml); 
+      document.getElementById("closeBillingModal").onclick = () => document.getElementById("billingModal").remove();
+      document.getElementById("portalBtn").onclick = () => {
+          alert("In a production environment, this button will securely redirect you to your hosted Razorpay or Stripe Customer Portal to manage cards and cancellations.");
+          document.getElementById("billingModal").remove();
+      };
+    };
   </script>
 </body>
 </html>
