@@ -17,7 +17,6 @@ export async function initDb() {
   try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   
-  // Notice we added disabled_at here
   await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, disabled_at INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   try { await db.execute(`ALTER TABLE monitors ADD COLUMN disabled_at INTEGER`); } catch {}
   
@@ -40,7 +39,6 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
 export async function getUserHistory(userId) { return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows; }
 export async function updateMonitorScore(userId, hostname, score) { await db.execute({ sql: `UPDATE monitors SET last_score = ? WHERE user_id = ? AND hostname = ?`, args: [score, userId, hostname.toLowerCase()] }); }
 
-// NEW AND UPDATED LOGIC FOR TOGGLES
 export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) { 
   await db.execute({ sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at, disabled_at) VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT(user_id, hostname) DO UPDATE SET check_interval = excluded.check_interval, alert_threshold = excluded.alert_threshold, is_active = 1, disabled_at = NULL`, args: [userId, hostname.toLowerCase(), interval, threshold, Date.now()] }); 
 }
@@ -51,4 +49,9 @@ export async function toggleMonitorStatus(userId, monitorId, isActive) {
 export async function toggleMonitorByHostname(userId, hostname, isActive) { 
   const disabledAt = isActive ? null : Date.now();
   await db.execute({ sql: `UPDATE monitors SET is_active = ?, disabled_at = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, disabledAt, userId, hostname.toLowerCase()] }); 
+}
+
+// NEW: Function to permanently delete a domain from a user's monitors
+export async function deleteMonitor(userId, monitorId) {
+  await db.execute({ sql: `DELETE FROM monitors WHERE id = ? AND user_id = ?`, args: [monitorId, userId] });
 }

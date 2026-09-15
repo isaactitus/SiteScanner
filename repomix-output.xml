@@ -221,65 +221,6 @@ node_modules/
 data/
 </file>
 
-<file path="email-service.js">
-// email-service.js
-import { Resend } from "resend";
-
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
-
-export async function sendAuditAlert({ to, hostname, currentScore, previousScore, issues }) {
-  if (!resend) {
-    console.warn("[EmailService] RESEND_API_KEY is not configured. Skipping alert.");
-    return null;
-  }
-
-  const scoreDiff = currentScore - (previousScore ?? currentScore);
-  const diffDisplay = scoreDiff > 0 ? `+${scoreDiff} pts` : `${scoreDiff} pts`;
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SiteScanner <alerts@yourdomain.com>";
-  const appUrl = process.env.APP_URL || "https://sitescanner.onrender.com";
-
-  return await resend.emails.send({
-    from: fromEmail,
-    to,
-    subject: `[Alert] Security Audit Report for ${hostname} (Grade: ${currentScore}/100)`,
-    html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #0f172a; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="color: #0284c7; margin-top: 0; font-size: 20px;">SiteScanner Automated Audit</h2>
-        <p style="font-size: 15px; color: #475569;">Target domain: <strong>${hostname}</strong></p>
-        
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin: 20px 0;">
-          <p style="font-size: 18px; margin: 0 0 6px; font-weight: 700;">
-            Current Score: ${currentScore}/100 
-            <span style="font-size: 14px; color: ${scoreDiff < 0 ? '#ef4444' : '#10b981'}; font-weight: 600;">(${diffDisplay})</span>
-          </p>
-          ${
-            currentScore < 70
-              ? `<p style="color: #ef4444; font-size: 14px; margin: 0; font-weight: 600;">⚠️ Security score is below your designated health threshold.</p>`
-              : `<p style="color: #10b981; font-size: 14px; margin: 0; font-weight: 600;">✓ Baseline health checks are passing.</p>`
-          }
-        </div>
-
-        <h3 style="font-size: 15px; margin-top: 24px; color: #0f172a;">Key Audit Findings:</h3>
-        <ul style="line-height: 1.6; color: #334155; font-size: 14px; padding-left: 20px;">
-          ${(issues && issues.length > 0 ? issues : ["Review full report for detailed breakdown."])
-            .map((issue) => `<li>${issue}</li>`)
-            .join("")}
-        </ul>
-
-        <div style="margin-top: 28px;">
-          <a href="${appUrl}/report/${encodeURIComponent(hostname)}" 
-             style="background: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">
-            View Detailed Audit
-          </a>
-        </div>
-      </div>
-    `,
-  });
-}
-</file>
-
 <file path="README.md">
 # SiteScanner
 
@@ -319,87 +260,6 @@ Same pattern as StarredList — deploy to Vercel or Render. Note: this is an Exp
 
 ## Legal note
 This tool is for scanning domains you own or have explicit written permission to test. Scanning third-party systems without authorization may violate computer misuse laws in your jurisdiction, regardless of intent.
-</file>
-
-<file path="scanner-cron.js">
-// scanner-cron.js
-import cron from "node-cron";
-import { db, recordScan, saveLatestScan } from "./history-store.js";
-import { calculateScore, scoreToGrade } from "./report-generator.js";
-import { sendAuditAlert } from "./email-service.js";
-
-export function initCronJobs(runScanPipeline) {
-  // Dispatches every 15 minutes
-  cron.schedule("*/15 * * * *", async () => {
-    const now = Date.now();
-
-    try {
-      const { rows: dueMonitors } = await db.execute({
-        sql: `SELECT m.*, u.email 
-              FROM monitors m 
-              JOIN users u ON m.user_id = u.id 
-              WHERE m.is_active = 1 AND m.next_run_at <= ? 
-              LIMIT 5`,
-        args: [now],
-      });
-
-      if (!dueMonitors || dueMonitors.length === 0) return;
-
-      for (const monitor of dueMonitors) {
-        try {
-          const raw = await runScanPipeline(monitor.hostname);
-          const { score } = calculateScore(raw, monitor.hostname);
-          const grade = scoreToGrade(score);
-
-          const { previous, history } = await recordScan(monitor.hostname, score, grade);
-          await saveLatestScan(monitor.hostname, {
-            hostname: monitor.hostname,
-            scannedAt: new Date().toISOString(),
-            raw,
-            score,
-            grade,
-            previousScan: previous,
-            history,
-          });
-
-          const droppedBelow = score < monitor.alert_threshold;
-          const regressed = monitor.last_score !== null && (monitor.last_score - score >= 10);
-
-          if (droppedBelow || regressed) {
-            const issues = [];
-            if (!raw.tls?.valid) issues.push("SSL Certificate is invalid or unreachable.");
-            if (raw.exposedFiles?.length > 0) issues.push(`${raw.exposedFiles.length} sensitive file(s) exposed publicly.`);
-            if (raw.headers?.missing?.length > 0) issues.push(`Missing core headers: ${raw.headers.missing.join(", ")}`);
-            if (raw.cors?.dangerousCombo) issues.push("Dangerous CORS configuration detected.");
-
-            await sendAuditAlert({
-              to: monitor.email,
-              hostname: monitor.hostname,
-              currentScore: score,
-              previousScore: monitor.last_score,
-              issues,
-            });
-          }
-
-          const intervalMs = monitor.check_interval === "daily"
-            ? 24 * 60 * 60 * 1000
-            : 7 * 24 * 60 * 60 * 1000;
-
-          await db.execute({
-            sql: `UPDATE monitors 
-                  SET last_score = ?, next_run_at = ?, is_active = 1 
-                  WHERE id = ?`,
-            args: [score, now + intervalMs, monitor.id],
-          });
-        } catch (scanErr) {
-          console.error(`[Cron] Execution error for ${monitor.hostname}:`, scanErr.message);
-        }
-      }
-    } catch (err) {
-      console.error("[Cron] Polling tick error:", err.message);
-    }
-  });
-}
 </file>
 
 <file path="fix-code-generator.js">
@@ -523,397 +383,120 @@ function generateFixCode(platform, missingHeaders) {
 export { generateFixCode };
 </file>
 
-<file path="public/dashboard.html">
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SiteScanner — Command Center</title>
-  <link rel="stylesheet" href="/style.css" />
-  <style>
-    /* Premium Dashboard UI Elements */
-    .dashboard-grid {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 32px;
-      align-items: start;
-    }
-    
-    @media (max-width: 850px) {
-      .dashboard-grid { grid-template-columns: 1fr; }
-    }
+<file path="scanner-cron.js">
+// scanner-cron.js
+import cron from "node-cron";
+import { db, getUserProfile, saveLatestScan, recordScan, updateMonitorScore } from "./history-store.js";
+import { calculateScore, scoreToGrade } from "./report-generator.js";
+import { sendAlertEmail } from "./email-service.js";
 
-    .stat-block {
-      background: rgba(15, 23, 42, 0.4);
-      border: 1px solid var(--surface-border);
-      border-radius: var(--radius-md);
-      padding: 24px;
-      margin-bottom: 16px;
-      position: relative;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    }
-
-    .stat-block:hover {
-      border-color: var(--surface-border-hover);
-    }
-
-    .stat-block::before {
-      content: ''; 
-      position: absolute; 
-      top: 0; 
-      left: 0; 
-      width: 4px; 
-      height: 100%;
-    }
-
-    .stat-block.plan-block::before { background: var(--brand-purple); }
-    .stat-block.score-block::before { background: var(--brand-cyan); }
-
-    .stat-value {
-      font-size: 3rem;
-      font-weight: 800;
-      color: #fff;
-      margin: 12px 0 4px;
-      line-height: 1;
-      font-family: var(--font-mono);
-      letter-spacing: -0.03em;
-    }
-
-    /* iOS-Style Smooth Toggles */
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 46px;
-      height: 26px;
-    }
-    
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-color: rgba(255,255,255,0.1);
-      border: 1px solid var(--surface-border);
-      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
-      border-radius: 34px;
-    }
-    
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 20px; width: 20px;
-      left: 2px; bottom: 2px;
-      background-color: var(--text-secondary);
-      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
-      border-radius: 50%;
-    }
-    
-    .toggle-switch input:checked + .toggle-slider {
-      background-color: rgba(16, 185, 129, 0.2);
-      border-color: var(--brand-emerald);
-    }
-    
-    .toggle-switch input:checked + .toggle-slider:before {
-      transform: translateX(20px);
-      background-color: var(--brand-emerald);
-      box-shadow: 0 0 10px var(--brand-emerald);
-    }
-
-    /* Monitor Row Transitions */
-    .monitor-row {
-      padding: 24px 32px;
-      border-bottom: 1px solid var(--surface-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      transition: background-color 0.3s ease, opacity 0.3s ease;
-    }
-    
-    .monitor-row:hover { background: rgba(255,255,255,0.02); }
-    .monitor-row:last-child { border-bottom: none; }
-    
-    .monitor-row.inactive {
-      background: rgba(0,0,0,0.25);
-      opacity: 0.5;
-    }
-    
-    .monitor-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #fff;
-      display: block;
-      margin-bottom: 8px;
-      font-family: var(--font-mono);
-      transition: color 0.3s ease;
-    }
-    
-    .monitor-row.inactive .monitor-title {
-      color: var(--text-tertiary);
-      text-decoration: line-through;
-    }
-  </style>
-</head>
-<body>
-  <div class="app-container" style="max-width: 1100px;">
-    <!-- Main Navigation Bar -->
-    <nav class="app-nav">
-      <a href="/" class="nav-brand">
-        <span class="nav-brand-badge"></span>
-        SiteScanner
-      </a>
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent; border-color: var(--surface-border);">+ New Scan</a>
-        <div id="authNavContainer" style="position: relative;"></div>
-      </div>
-    </nav>
-
-    <header style="margin-bottom: 40px;">
-      <h1 style="font-size: 2.5rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.03em;">Command Center</h1>
-      <p style="color: var(--text-secondary); font-size: 1.05rem;">Manage your security posture, active telemetry monitors, and billing.</p>
-    </header>
-
-    <main class="dashboard-grid">
-      <!-- LEFT COLUMN: Account & Billing Overview -->
-      <aside>
-        <div class="card" style="padding: 0; background: transparent; border: none;">
-          
-          <div class="stat-block plan-block">
-            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
-            <div id="planStatusUi" style="margin-top: 12px;">
-              <!-- Injected via JS -->
-            </div>
-          </div>
-
-          <div class="stat-block score-block">
-            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Fleet Security Score</span>
-            <div id="avgScoreDisplay" class="stat-value">--</div>
-            <span style="font-size: 0.85rem; color: var(--text-tertiary);">Average across monitored targets</span>
-          </div>
-
-          <button onclick="window.showBillingModal()" class="cta-button" style="width: 100%; background: rgba(15,23,42,0.6); color: #fff; border-color: var(--surface-border-hover);">Manage Billing</button>
-        </div>
-      </aside>
-
-      <!-- RIGHT COLUMN: The Monitor List -->
-      <section>
-        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border-hover);">
-          <div style="background: rgba(15,23,42,0.8); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Automated Threat Monitors</h3>
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.1);" id="monitorCount">0 Active</span>
-          </div>
-          
-          <div id="monitorsList">
-            <div style="padding: 64px; text-align: center; color: var(--text-tertiary);">
-              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">Loading security telemetry...</span>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  <script src="/render.js"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", async () => {
-      if (window.authReady) await window.authReady;
-      if (!currentUser) return window.location.href = "/";
-
-      // 1. Render Billing UI (Dynamically calculated based on purchase date)
-      const planUi = document.getElementById("planStatusUi");
-      if (currentUser.is_pro) {
-        let daysRemaining = 30;
-        let progressPercent = 0;
-        
-        if (currentUser.pro_started_at) {
-          // Robust Date parsing for SQLite timestamps
-          let dbDateStr = currentUser.pro_started_at;
-          if (!dbDateStr.includes("T")) dbDateStr = dbDateStr.replace(" ", "T");
-          if (!dbDateStr.endsWith("Z")) dbDateStr += "Z";
-          
-          const startDate = new Date(dbDateStr);
-          if (!isNaN(startDate.getTime())) {
-            const now = new Date();
-            const diffDays = Math.max(0, (now - startDate) / (1000 * 60 * 60 * 24));
-            
-            // Standard rolling 30-day billing cycle calculation
-            const cycleDay = diffDays % 30; 
-            daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
-            progressPercent = Math.round((cycleDay / 30) * 100);
-          }
-        }
-
-        planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">PRO TIER</span>
-          <div style="font-size: 0.9rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
-          <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
-            <div style="width: ${progressPercent}%; height: 100%; background: linear-gradient(90deg, var(--brand-purple), #c4b5fd); border-radius: 3px;"></div>
-          </div>`;
-      } else {
-        planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">FREE TIER</span>
-          <div style="font-size: 0.9rem; color: var(--text-tertiary); line-height: 1.5;">Limited to manual passive scans.</div>
-          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 16px; padding: 10px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
-        `;
-      }
-
-      loadMonitors();
-
-      async function loadMonitors() {
-        const listEl = document.getElementById("monitorsList");
+export function initCronJobs(runScanPipeline) {
+  // Run every 15 minutes to sweep active monitors
+  cron.schedule("*/15 * * * *", async () => {
+    console.log("[Cron] Sweeping active monitors...");
+    try {
+      const res = await db.execute(`SELECT * FROM monitors WHERE is_active = 1`);
+      const monitors = res.rows;
+      
+      for (const monitor of monitors) {
         try {
-          const res = await fetch("/api/monitors");
-          const monitors = await res.json();
+           const user = await getUserProfile(monitor.user_id);
+           if (!user || !user.is_pro) continue;
 
-          // Empty State Design
-          if (monitors.length === 0) {
-            document.getElementById("monitorCount").textContent = "0 Active";
-            listEl.innerHTML = `
-              <div style="padding: 80px 24px; text-align: center;">
-                <div style="width: 64px; height: 64px; border-radius: 16px; background: rgba(16,185,129,0.1); color: var(--brand-emerald); display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 20px; border: 1px solid rgba(16,185,129,0.2);">🛡️</div>
-                <strong style="color: #fff; display: block; font-size: 1.25rem; margin-bottom: 12px;">No targets monitored yet</strong>
-                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 320px; margin: 0 auto 32px; line-height: 1.6;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
-                <a href="/" class="cta-button" style="display: inline-flex; width: auto; background: #fff; color: #090d16;">Scan a Target Domain</a>
-              </div>`;
-            return;
-          }
-
-          // Calculate Dashboard Stats
-          const activeMonitors = monitors.filter(m => m.is_active);
-          document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
-          
-          if (activeMonitors.length > 0) {
-            const validScores = activeMonitors.map(m => m.last_score).filter(s => s !== null);
-            if (validScores.length > 0) {
-              const avg = Math.round(validScores.reduce((a,b)=>a+b,0) / validScores.length);
-              const avgEl = document.getElementById("avgScoreDisplay");
-              avgEl.textContent = avg;
-              avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
-              avgEl.style.textShadow = `0 0 20px ${avgEl.style.color}`;
-            }
-          }
-
-          // Render Rows
-          listEl.innerHTML = monitors.map(m => {
-            const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
-            const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
-            
-            return `
-            <div class="${rowClass}" id="monitor-row-${m.id}">
-              <div>
-                <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
-                <div style="font-size: 0.9rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
-                  <span>Last Score: <strong style="color: ${m.last_score ? scoreColor : 'var(--text-tertiary)'}">${m.last_score || 'Pending Scan'}</strong></span>
-                  <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
-                  <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
-                </div>
-              </div>
-
-              <div style="display: flex; align-items: center; gap: 32px;">
-                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
-                
-                <label class="toggle-switch">
-                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
-                  <div class="toggle-slider"></div>
-                </label>
-              </div>
-            </div>`;
-          }).join("");
-
-          // --- OPTIMISTIC UI TOGGLE LOGIC ---
-          document.querySelectorAll('.optimistic-toggle').forEach(input => {
-            input.addEventListener('change', async (e) => {
-              const id = e.target.getAttribute('data-id');
-              const isActive = e.target.checked;
-              const row = document.getElementById(`monitor-row-${id}`);
-              
-              if (isActive) row.classList.remove('inactive');
-              else row.classList.add('inactive');
-
-              try {
-                const res = await fetch(`/api/monitors/${id}/toggle`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ isActive })
-                });
-                
-                if (!res.ok) throw new Error("Toggle failed");
-                
-                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
-                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
-
-              } catch (err) {
-                e.target.checked = !isActive;
-                if (!isActive) row.classList.remove('inactive');
-                else row.classList.add('inactive');
-                alert("Network error. Could not update monitor status.");
-              }
-            });
-          });
+           // Run the deep background scan
+           const raw = await runScanPipeline(monitor.hostname);
+           const { score } = calculateScore(raw, monitor.hostname);
+           const grade = scoreToGrade(score);
+           
+           // Silently record it to their scan history
+           const { previous, history } = await recordScan(monitor.hostname, score, grade, monitor.user_id);
+           await saveLatestScan(monitor.hostname, { hostname: monitor.hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history });
+           
+           // State Engine: Compare the new score against the last recorded score
+           const oldScore = monitor.last_score;
+           
+           // If they have an old score, and the new score is different, trigger the alert!
+           if (oldScore !== null && score !== oldScore) {
+              await sendAlertEmail(user.email, monitor.hostname, oldScore, score, "change");
+           }
+           
+           // Update the database with the new baseline score
+           await updateMonitorScore(monitor.user_id, monitor.hostname, score);
 
         } catch (err) {
-          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
+           console.error(`[Cron] Error scanning ${monitor.hostname}:`, err);
         }
       }
-    });
+    } catch (err) {
+      console.error("[Cron] Database sweep failed:", err);
+    }
+  });
+}
+</file>
 
-    // --- BILLING MODAL LOGIC ---
-    window.showBillingModal = function() {
-      if (document.getElementById("billingModal")) document.getElementById("billingModal").remove();
-      
-      let startedDate = "Recently";
-      if (currentUser.pro_started_at) {
-         let dStr = currentUser.pro_started_at;
-         if (!dStr.includes("T")) dStr = dStr.replace(" ", "T");
-         if (!dStr.endsWith("Z")) dStr += "Z";
-         startedDate = new Date(dStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      }
-      
-      const modalHtml = `
-        <div id="billingModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
-          <div class="card" style="max-width:480px; width:100%; border:1px solid rgba(139,92,246,0.4); box-shadow:0 0 40px -10px rgba(139,92,246,0.3); padding:32px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
-              <h3 style="color:#fff; font-size:1.4rem; font-weight:800; letter-spacing: -0.02em;">Billing Management</h3>
-              <span style="padding:4px 10px; background:rgba(16,185,129,0.15); color:var(--brand-emerald); border-radius:6px; font-size:0.75rem; font-weight:700; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
-            </div>
-            
-            <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
-                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Current Plan</span>
-                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">SiteScanner PRO</span>
-              </div>
-              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
-                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Amount</span>
-                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">₹499.00 / month</span>
-              </div>
-              <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Member Since</span>
-                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">${startedDate}</span>
-              </div>
-            </div>
+<file path="email-service.js">
+// email-service.js
+import fetch from "node-fetch";
 
-            <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:28px;">To update your payment method or cancel your subscription, please use the secure Razorpay customer portal linked to your account.</p>
-            
-            <div style="display:flex; gap: 12px;">
-              <button id="portalBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); flex:1; font-weight:700;">Customer Portal</button>
-              <button id="closeBillingModal" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Close</button>
-            </div>
-          </div>
-        </div>`;
-      
-      document.body.insertAdjacentHTML("beforeend", modalHtml); 
-      document.getElementById("closeBillingModal").onclick = () => document.getElementById("billingModal").remove();
-      document.getElementById("portalBtn").onclick = () => {
-          alert("In a production environment, this button will securely redirect you to your hosted Razorpay or Stripe Customer Portal to manage cards and cancellations.");
-          document.getElementById("billingModal").remove();
-      };
-    };
-  </script>
-</body>
-</html>
+export async function sendAlertEmail(toEmail, hostname, oldScore, newScore, eventType) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SiteScanner Alerts <onboarding@resend.dev>";
+  
+  if (!apiKey) { console.error("No Resend API key found."); return; }
+
+  let subject = "";
+  let headline = "";
+  let message = "";
+  let color = "#10b981"; 
+  let scoreBlock = "";
+
+  if (eventType === "activated") {
+    subject = `✅ Monitoring Activated: ${hostname}`;
+    headline = `Threat Monitoring Active`;
+    message = `You have successfully armed the active security monitor for <b>${hostname}</b>. We have established your baseline score, and will notify you immediately if your security posture fluctuates.`;
+    color = "#8b5cf6"; 
+  } else if (eventType === "deactivated") {
+    subject = `🔕 Monitoring Deactivated: ${hostname}`;
+    headline = `Alerts Disabled`;
+    message = `You have successfully disabled active security monitoring for <b>${hostname}</b>. You will no longer receive alerts for this domain. <br><br><i>Please note: A 24-hour cooldown is now in effect before you can re-enable alerts for this website.</i>`;
+    color = "#64748b"; 
+  } else if (newScore < oldScore) {
+    subject = `🚨 ALERT: Security Score Dropped for ${hostname}`;
+    headline = `Security Degradation Detected`;
+    message = `The security score for <b>${hostname}</b> has dropped from ${oldScore} to ${newScore}. A new vulnerability or misconfiguration was detected. Immediate attention is recommended.`;
+    color = "#f43f5e"; 
+  } else if (newScore > oldScore) {
+    subject = `📈 UPGRADE: Security Score Improved for ${hostname}`;
+    headline = `Security Posture Improved`;
+    message = `Great news! The security score for <b>${hostname}</b> has increased from ${oldScore} to ${newScore}. Your recent remediations were successful.`;
+    color = "#10b981"; 
+  } else { return; }
+
+  if (newScore !== null) {
+    scoreBlock = `
+      <div style="background-color: #0f172a; padding: 32px; border-radius: 8px; margin: 32px 0; border: 1px solid #1e293b; text-align: center;">
+        <div style="font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 700;">Current Audit Score</div>
+        <div style="font-size: 56px; font-weight: 800; color: ${color};">${newScore} <span style="font-size: 24px; color: #475569;">/ 100</span></div>
+      </div>
+    `;
+  }
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #04070f; color: #fff; padding: 32px; border-radius: 12px; border: 1px solid #1e293b;">
+      <div style="text-align: center; margin-bottom: 24px;"><h2 style="color: ${color}; margin-top: 0; font-size: 24px;">${headline}</h2></div>
+      <p style="color: #cbd5e1; font-size: 16px; line-height: 1.6;">${message}</p>
+      ${scoreBlock}
+      <div style="text-align: center; margin-top: 32px;">
+        <a href="https://sitescanner-0z29.onrender.com/report/${hostname}" style="display: inline-block; background-color: ${color}; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 6px; font-weight: bold; font-size: 15px;">View Dashboard</a>
+      </div>
+      <div style="margin-top: 48px; padding-top: 24px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b; text-align: center; font-weight: 600;">Powered by LIBI Security • SiteScanner Engine 2.0</div>
+    </div>
+  `;
+
+  try {
+    await fetch("https://api.resend.com/emails", { method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: fromEmail, to: toEmail, subject: subject, html: html }) });
+  } catch (err) { console.error("[Email] Failed to dispatch alert:", err); }
+}
 </file>
 
 <file path="report-generator.js">
@@ -1289,6 +872,435 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+</file>
+
+<file path="public/dashboard.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteScanner — Command Center</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    /* Premium Dashboard UI Elements */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 32px;
+      align-items: start;
+    }
+    
+    @media (max-width: 850px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+
+    .stat-block {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .stat-block:hover {
+      border-color: var(--surface-border-hover);
+    }
+
+    .stat-block::before {
+      content: ''; 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
+      width: 4px; 
+      height: 100%;
+    }
+
+    .stat-block.plan-block::before { background: var(--brand-purple); }
+    .stat-block.score-block::before { background: var(--brand-cyan); }
+
+    .stat-value {
+      font-size: 3rem;
+      font-weight: 800;
+      color: #fff;
+      margin: 12px 0 4px;
+      line-height: 1;
+      font-family: var(--font-mono);
+      letter-spacing: -0.03em;
+    }
+
+    /* iOS-Style Smooth Toggles */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 26px;
+    }
+    
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255,255,255,0.1);
+      border: 1px solid var(--surface-border);
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 34px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px; width: 20px;
+      left: 2px; bottom: 2px;
+      background-color: var(--text-secondary);
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 50%;
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: rgba(16, 185, 129, 0.2);
+      border-color: var(--brand-emerald);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+      background-color: var(--brand-emerald);
+      box-shadow: 0 0 10px var(--brand-emerald);
+    }
+
+    /* Monitor Row Transitions */
+    .monitor-row {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background-color 0.3s ease, opacity 0.3s ease;
+    }
+    
+    .monitor-row:hover { background: rgba(255,255,255,0.02); }
+    .monitor-row:last-child { border-bottom: none; }
+    
+    .monitor-row.inactive {
+      background: rgba(0,0,0,0.25);
+      opacity: 0.5;
+    }
+    
+    .monitor-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      display: block;
+      margin-bottom: 8px;
+      font-family: var(--font-mono);
+      transition: color 0.3s ease;
+    }
+    
+    .monitor-row.inactive .monitor-title {
+      color: var(--text-tertiary);
+      text-decoration: line-through;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container" style="max-width: 1100px;">
+    <!-- Main Navigation Bar -->
+    <nav class="app-nav">
+      <a href="/" class="nav-brand">
+        <span class="nav-brand-badge"></span>
+        SiteScanner
+      </a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent; border-color: var(--surface-border);">+ New Scan</a>
+        <div id="authNavContainer" style="position: relative;"></div>
+      </div>
+    </nav>
+
+    <header style="margin-bottom: 40px;">
+      <h1 style="font-size: 2.5rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.03em;">Command Center</h1>
+      <p style="color: var(--text-secondary); font-size: 1.05rem;">Manage your security posture, active telemetry monitors, and billing.</p>
+    </header>
+
+    <main class="dashboard-grid">
+      <!-- LEFT COLUMN: Account & Billing Overview -->
+      <aside>
+        <div class="card" style="padding: 0; background: transparent; border: none;">
+          
+          <div class="stat-block plan-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
+            <div id="planStatusUi" style="margin-top: 12px;">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+
+          <div class="stat-block score-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Fleet Security Score</span>
+            <div id="avgScoreDisplay" class="stat-value">--</div>
+            <span style="font-size: 0.85rem; color: var(--text-tertiary);">Average across monitored targets</span>
+          </div>
+
+          <button onclick="window.showBillingModal()" class="cta-button" style="width: 100%; background: rgba(15,23,42,0.6); color: #fff; border-color: var(--surface-border-hover);">Manage Billing</button>
+        </div>
+      </aside>
+
+      <!-- RIGHT COLUMN: The Monitor List -->
+      <section>
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border-hover);">
+          <div style="background: rgba(15,23,42,0.8); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Automated Threat Monitors</h3>
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.1);" id="monitorCount">0 Active</span>
+          </div>
+          
+          <div id="monitorsList">
+            <div style="padding: 64px; text-align: center; color: var(--text-tertiary);">
+              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">Loading security telemetry...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/render.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      if (window.authReady) await window.authReady;
+      if (!currentUser) return window.location.href = "/";
+
+      // 1. Render Billing UI (Dynamically calculated based on purchase date)
+      const planUi = document.getElementById("planStatusUi");
+      if (currentUser.is_pro) {
+        let daysRemaining = 30;
+        let progressPercent = 0;
+        
+        if (currentUser.pro_started_at) {
+          // Robust Date parsing for SQLite timestamps
+          let dbDateStr = currentUser.pro_started_at;
+          if (!dbDateStr.includes("T")) dbDateStr = dbDateStr.replace(" ", "T");
+          if (!dbDateStr.endsWith("Z")) dbDateStr += "Z";
+          
+          const startDate = new Date(dbDateStr);
+          if (!isNaN(startDate.getTime())) {
+            const now = new Date();
+            const diffDays = Math.max(0, (now - startDate) / (1000 * 60 * 60 * 24));
+            
+            // Standard rolling 30-day billing cycle calculation
+            const cycleDay = diffDays % 30; 
+            daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
+            progressPercent = Math.round((cycleDay / 30) * 100);
+          }
+        }
+
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">PRO TIER</span>
+          <div style="font-size: 0.9rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
+          <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
+            <div style="width: ${progressPercent}%; height: 100%; background: linear-gradient(90deg, var(--brand-purple), #c4b5fd); border-radius: 3px;"></div>
+          </div>`;
+      } else {
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">FREE TIER</span>
+          <div style="font-size: 0.9rem; color: var(--text-tertiary); line-height: 1.5;">Limited to manual passive scans.</div>
+          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 16px; padding: 10px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
+        `;
+      }
+
+      loadMonitors();
+
+      async function loadMonitors() {
+        const listEl = document.getElementById("monitorsList");
+        try {
+          const res = await fetch("/api/monitors");
+          const monitors = await res.json();
+
+          // Empty State Design
+          if (monitors.length === 0) {
+            document.getElementById("monitorCount").textContent = "0 Active";
+            listEl.innerHTML = `
+              <div style="padding: 80px 24px; text-align: center;">
+                <div style="width: 64px; height: 64px; border-radius: 16px; background: rgba(16,185,129,0.1); color: var(--brand-emerald); display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 20px; border: 1px solid rgba(16,185,129,0.2);">🛡️</div>
+                <strong style="color: #fff; display: block; font-size: 1.25rem; margin-bottom: 12px;">No targets monitored yet</strong>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 320px; margin: 0 auto 32px; line-height: 1.6;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
+                <a href="/" class="cta-button" style="display: inline-flex; width: auto; background: #fff; color: #090d16;">Scan a Target Domain</a>
+              </div>`;
+            return;
+          }
+
+          // Calculate Dashboard Stats
+          const activeMonitors = monitors.filter(m => m.is_active);
+          document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
+          
+          if (activeMonitors.length > 0) {
+            const validScores = activeMonitors.map(m => m.last_score).filter(s => s !== null);
+            if (validScores.length > 0) {
+              const avg = Math.round(validScores.reduce((a,b)=>a+b,0) / validScores.length);
+              const avgEl = document.getElementById("avgScoreDisplay");
+              avgEl.textContent = avg;
+              avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
+              avgEl.style.textShadow = `0 0 20px ${avgEl.style.color}`;
+            }
+          }
+
+          // Render Rows
+          listEl.innerHTML = monitors.map(m => {
+            const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+            const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
+            
+            return `
+            <div class="${rowClass}" id="monitor-row-${m.id}">
+              <div>
+                <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
+                <div style="font-size: 0.9rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
+                  <span>Last Score: <strong style="color: ${m.last_score ? scoreColor : 'var(--text-tertiary)'}">${m.last_score || 'Pending Scan'}</strong></span>
+                  <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
+                  <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 32px;">
+                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
+                
+                <label class="toggle-switch">
+                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
+                  <div class="toggle-slider"></div>
+                </label>
+              </div>
+            </div>`;
+          }).join("");
+
+          // --- SMART UI TOGGLE LOGIC ---
+          document.querySelectorAll('.optimistic-toggle').forEach(input => {
+            input.addEventListener('click', async (e) => {
+              e.preventDefault(); 
+              const id = e.target.getAttribute('data-id');
+              const hostname = document.getElementById(`title-${id}`).textContent;
+              const willBeActive = !e.target.checked; 
+              const row = document.getElementById(`monitor-row-${id}`);
+
+              if (!willBeActive) {
+                // SHOW WARNING POPUP MODAL FOR DASHBOARD
+                if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
+                const modalHtml = `
+                  <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+                    <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+                      <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
+                      <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
+                      <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for <strong>${hostname}</strong> for the next 24 hours. Do you wish to continue?</p>
+                      <div style="display:flex; gap: 12px;">
+                        <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Continue</button>
+                        <button id="cancelDisableBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                `;
+                document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+                document.getElementById("cancelDisableBtn").onclick = () => {
+                  document.getElementById("disableModal").remove();
+                };
+
+                document.getElementById("confirmDisableBtn").onclick = async () => {
+                   document.getElementById("disableModal").remove();
+                   await executeToggle(id, false, e.target, row);
+                };
+              } else {
+                // Instantly turn ON
+                await executeToggle(id, true, e.target, row);
+              }
+            });
+          });
+
+          // Helper function to process the API request
+          async function executeToggle(id, isActive, checkboxEl, rowEl) {
+             checkboxEl.checked = isActive; 
+             if (isActive) rowEl.classList.remove('inactive');
+             else rowEl.classList.add('inactive');
+
+             try {
+                const res = await fetch(`/api/monitors/${id}/toggle`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ isActive })
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
+                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+             } catch (err) {
+                alert(err.message);
+                checkboxEl.checked = !isActive;
+                if (!isActive) rowEl.classList.remove('inactive');
+                else rowEl.classList.add('inactive');
+             }
+          }
+
+        } catch (err) {
+          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
+        }
+      }
+    });
+
+    // --- BILLING MODAL LOGIC ---
+    window.showBillingModal = function() {
+      if (document.getElementById("billingModal")) document.getElementById("billingModal").remove();
+      
+      let startedDate = "Recently";
+      if (currentUser.pro_started_at) {
+         let dStr = currentUser.pro_started_at;
+         if (!dStr.includes("T")) dStr = dStr.replace(" ", "T");
+         if (!dStr.endsWith("Z")) dStr += "Z";
+         startedDate = new Date(dStr).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      }
+      
+      const modalHtml = `
+        <div id="billingModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+          <div class="card" style="max-width:480px; width:100%; border:1px solid rgba(139,92,246,0.4); box-shadow:0 0 40px -10px rgba(139,92,246,0.3); padding:32px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+              <h3 style="color:#fff; font-size:1.4rem; font-weight:800; letter-spacing: -0.02em;">Billing Management</h3>
+              <span style="padding:4px 10px; background:rgba(16,185,129,0.15); color:var(--brand-emerald); border-radius:6px; font-size:0.75rem; font-weight:700; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
+            </div>
+            
+            <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Current Plan</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">SiteScanner PRO</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Amount</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">₹499.00 / month</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-tertiary); font-size: 0.9rem;">Member Since</span>
+                <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">${startedDate}</span>
+              </div>
+            </div>
+
+            <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:28px;">To update your payment method or cancel your subscription, please use the secure Razorpay customer portal linked to your account.</p>
+            
+            <div style="display:flex; gap: 12px;">
+              <button id="portalBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); flex:1; font-weight:700;">Customer Portal</button>
+              <button id="closeBillingModal" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Close</button>
+            </div>
+          </div>
+        </div>`;
+      
+      document.body.insertAdjacentHTML("beforeend", modalHtml); 
+      document.getElementById("closeBillingModal").onclick = () => document.getElementById("billingModal").remove();
+      document.getElementById("portalBtn").onclick = () => {
+          alert("In a production environment, this button will securely redirect you to your hosted Razorpay or Stripe Customer Portal to manage cards and cancellations.");
+          document.getElementById("billingModal").remove();
+      };
+    };
+  </script>
+</body>
+</html>
 </file>
 
 <file path="public/report.html">
@@ -2309,88 +2321,6 @@ body {
 }
 </file>
 
-<file path="history-store.js">
-// history-store.js
-import { createClient } from "@libsql/client";
-import crypto from "crypto";
-
-export const db = createClient({
-  url: process.env.TURSO_DATABASE_URL || "file:local.db",
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
-
-export async function initDb() {
-  await db.execute(`CREATE TABLE IF NOT EXISTS scan_history (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-  try { await db.execute(`ALTER TABLE scan_history ADD COLUMN user_id TEXT`); } catch {}
-  await db.execute(`CREATE TABLE IF NOT EXISTS latest_scans (hostname TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-  await db.execute(`CREATE TABLE IF NOT EXISTS public_feed (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-  try { await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch {}
-  await db.execute(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, avatar_url TEXT, is_pro INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-  try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
-  await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
-  await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
-  await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
-}
-initDb().catch(console.error);
-
-export async function upsertUser({ id, email, name, avatarUrl }) {
-  await db.execute({ sql: `INSERT INTO users (id, email, name, avatar_url) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, avatar_url = excluded.avatar_url`, args: [id, email, name, avatarUrl] });
-  return (await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [id] })).rows[0];
-}
-
-export async function getUserProfile(userId) {
-  const userRes = await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [userId] });
-  if (!userRes.rows.length) return null;
-  const user = userRes.rows[0];
-  const entitlementsRes = await db.execute({ sql: `SELECT hostname, unlocked_at FROM entitlements WHERE user_id = ? ORDER BY unlocked_at DESC`, args: [userId] });
-  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at || null, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
-}
-
-export async function grantDomainEntitlement(userId, hostname, orderId) { await db.execute({ sql: `INSERT INTO entitlements (user_id, hostname, order_id) VALUES (?, ?, ?) ON CONFLICT(user_id, hostname) DO NOTHING`, args: [userId, hostname.toLowerCase(), orderId] }); }
-export async function checkDomainEntitlement(userId, hostname) {
-  if (!userId) return false;
-  const userRes = await db.execute({ sql: `SELECT is_pro FROM users WHERE id = ?`, args: [userId] });
-  if (userRes.rows.length && userRes.rows[0].is_pro) return true;
-  return (await db.execute({ sql: `SELECT 1 FROM entitlements WHERE user_id = ? AND hostname = ? LIMIT 1`, args: [userId, hostname.toLowerCase()] })).rows.length > 0;
-}
-export async function recordScan(hostname, score, grade, userId = null) {
-  const prev = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 1`, args: [hostname] });
-  await db.execute({ sql: `INSERT INTO scan_history (hostname, score, grade, user_id, scanned_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade, userId] });
-  const history = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 5`, args: [hostname] });
-  return { previous: prev.rows[0] || null, history: history.rows };
-}
-export async function saveLatestScan(hostname, result) { await db.execute({ sql: `INSERT INTO latest_scans (hostname, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(hostname) DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP`, args: [hostname, JSON.stringify(result)] }); }
-export async function getLatestScan(hostname) { const res = await db.execute({ sql: `SELECT data FROM latest_scans WHERE hostname = ?`, args: [hostname] }); return res.rows[0] ? JSON.parse(res.rows[0].data) : null; }
-export async function addToPublicFeed(hostname, score, grade) {
-  try { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade] });
-  } catch {
-    try { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade] });
-    } catch { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade) VALUES (?, ?, ?)`, args: [hostname, score, grade] }); }
-  }
-}
-export async function getPublicFeed() { try { return (await db.execute(`SELECT hostname, score, grade FROM public_feed ORDER BY id DESC LIMIT 10`)).rows; } catch (err) { return []; } }
-export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) { await db.execute({ sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, hostname) DO UPDATE SET check_interval = excluded.check_interval, alert_threshold = excluded.alert_threshold, is_active = 1`, args: [userId, hostname.toLowerCase(), interval, threshold, Date.now()] }); }
-export async function getUserMonitors(userId) { return (await db.execute({ sql: `SELECT * FROM monitors WHERE user_id = ? ORDER BY id DESC`, args: [userId] })).rows; }
-export async function getOrGenerateVerificationToken(userId, hostname) {
-  const cleanHost = hostname.toLowerCase();
-  const existing = await db.execute({ sql: `SELECT token, is_verified FROM domain_verifications WHERE user_id = ? AND hostname = ?`, args: [userId, cleanHost] });
-  if (existing.rows.length > 0) return { token: existing.rows[0].token, isVerified: Boolean(existing.rows[0].is_verified) };
-  const newToken = `sitescanner-verification=${crypto.randomBytes(16).toString("hex")}`;
-  await db.execute({ sql: `INSERT INTO domain_verifications (user_id, hostname, token) VALUES (?, ?, ?)`, args: [userId, cleanHost, newToken] });
-  return { token: newToken, isVerified: false };
-}
-export async function markDomainVerified(userId, hostname) { await db.execute({ sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`, args: [userId, hostname.toLowerCase()] }); }
-export async function toggleMonitorStatus(userId, monitorId, isActive) {
-  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE id = ? AND user_id = ?`, args: [isActive ? 1 : 0, monitorId, userId] });
-}
-export async function toggleMonitorByHostname(userId, hostname, isActive) {
-  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, userId, hostname.toLowerCase()] });
-}
-export async function getUserHistory(userId) {
-  return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows;
-}
-</file>
-
 <file path="public/index.html">
 <!DOCTYPE html>
 <html lang="en">
@@ -2513,6 +2443,63 @@ export async function getUserHistory(userId) {
   </script>
 </body>
 </html>
+</file>
+
+<file path="history-store.js">
+// history-store.js
+import { createClient } from "@libsql/client";
+import crypto from "crypto";
+
+export const db = createClient({
+  url: process.env.TURSO_DATABASE_URL || "file:local.db",
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+export async function initDb() {
+  await db.execute(`CREATE TABLE IF NOT EXISTS scan_history (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE scan_history ADD COLUMN user_id TEXT`); } catch {}
+  await db.execute(`CREATE TABLE IF NOT EXISTS latest_scans (hostname TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS public_feed (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch {}
+  await db.execute(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, avatar_url TEXT, is_pro INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
+  await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
+  
+  // Notice we added disabled_at here
+  await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, disabled_at INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
+  try { await db.execute(`ALTER TABLE monitors ADD COLUMN disabled_at INTEGER`); } catch {}
+  
+  await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
+}
+initDb().catch(console.error);
+
+export async function upsertUser({ id, email, name, avatarUrl }) { await db.execute({ sql: `INSERT INTO users (id, email, name, avatar_url) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, avatar_url = excluded.avatar_url`, args: [id, email, name, avatarUrl] }); return (await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [id] })).rows[0]; }
+export async function getUserProfile(userId) { const userRes = await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [userId] }); if (!userRes.rows.length) return null; const user = userRes.rows[0]; const entitlementsRes = await db.execute({ sql: `SELECT hostname, unlocked_at FROM entitlements WHERE user_id = ? ORDER BY unlocked_at DESC`, args: [userId] }); return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at || null, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) }; }
+export async function grantDomainEntitlement(userId, hostname, orderId) { await db.execute({ sql: `INSERT INTO entitlements (user_id, hostname, order_id) VALUES (?, ?, ?) ON CONFLICT(user_id, hostname) DO NOTHING`, args: [userId, hostname.toLowerCase(), orderId] }); }
+export async function checkDomainEntitlement(userId, hostname) { if (!userId) return false; const userRes = await db.execute({ sql: `SELECT is_pro FROM users WHERE id = ?`, args: [userId] }); if (userRes.rows.length && userRes.rows[0].is_pro) return true; return (await db.execute({ sql: `SELECT 1 FROM entitlements WHERE user_id = ? AND hostname = ? LIMIT 1`, args: [userId, hostname.toLowerCase()] })).rows.length > 0; }
+export async function recordScan(hostname, score, grade, userId = null) { const prev = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 1`, args: [hostname] }); await db.execute({ sql: `INSERT INTO scan_history (hostname, score, grade, user_id, scanned_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade, userId] }); const history = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 5`, args: [hostname] }); return { previous: prev.rows[0] || null, history: history.rows }; }
+export async function saveLatestScan(hostname, result) { await db.execute({ sql: `INSERT INTO latest_scans (hostname, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(hostname) DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP`, args: [hostname, JSON.stringify(result)] }); }
+export async function getLatestScan(hostname) { const res = await db.execute({ sql: `SELECT data FROM latest_scans WHERE hostname = ?`, args: [hostname] }); return res.rows[0] ? JSON.parse(res.rows[0].data) : null; }
+export async function addToPublicFeed(hostname, score, grade) { try { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade] }); } catch { try { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade] }); } catch { await db.execute({ sql: `INSERT INTO public_feed (hostname, score, grade) VALUES (?, ?, ?)`, args: [hostname, score, grade] }); } } }
+export async function getPublicFeed() { try { return (await db.execute(`SELECT hostname, score, grade FROM public_feed ORDER BY id DESC LIMIT 10`)).rows; } catch (err) { return []; } }
+export async function getUserMonitors(userId) { return (await db.execute({ sql: `SELECT * FROM monitors WHERE user_id = ? ORDER BY id DESC`, args: [userId] })).rows; }
+export async function getOrGenerateVerificationToken(userId, hostname) { const cleanHost = hostname.toLowerCase(); const existing = await db.execute({ sql: `SELECT token, is_verified FROM domain_verifications WHERE user_id = ? AND hostname = ?`, args: [userId, cleanHost] }); if (existing.rows.length > 0) return { token: existing.rows[0].token, isVerified: Boolean(existing.rows[0].is_verified) }; const newToken = `sitescanner-verification=${crypto.randomBytes(16).toString("hex")}`; await db.execute({ sql: `INSERT INTO domain_verifications (user_id, hostname, token) VALUES (?, ?, ?)`, args: [userId, cleanHost, newToken] }); return { token: newToken, isVerified: false }; }
+export async function markDomainVerified(userId, hostname) { await db.execute({ sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`, args: [userId, hostname.toLowerCase()] }); }
+export async function getUserHistory(userId) { return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows; }
+export async function updateMonitorScore(userId, hostname, score) { await db.execute({ sql: `UPDATE monitors SET last_score = ? WHERE user_id = ? AND hostname = ?`, args: [score, userId, hostname.toLowerCase()] }); }
+
+// NEW AND UPDATED LOGIC FOR TOGGLES
+export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) { 
+  await db.execute({ sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at, disabled_at) VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT(user_id, hostname) DO UPDATE SET check_interval = excluded.check_interval, alert_threshold = excluded.alert_threshold, is_active = 1, disabled_at = NULL`, args: [userId, hostname.toLowerCase(), interval, threshold, Date.now()] }); 
+}
+export async function toggleMonitorStatus(userId, monitorId, isActive) { 
+  const disabledAt = isActive ? null : Date.now();
+  await db.execute({ sql: `UPDATE monitors SET is_active = ?, disabled_at = ? WHERE id = ? AND user_id = ?`, args: [isActive ? 1 : 0, disabledAt, monitorId, userId] }); 
+}
+export async function toggleMonitorByHostname(userId, hostname, isActive) { 
+  const disabledAt = isActive ? null : Date.now();
+  await db.execute({ sql: `UPDATE monitors SET is_active = ?, disabled_at = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, disabledAt, userId, hostname.toLowerCase()] }); 
+}
 </file>
 
 <file path="public/render.js">
@@ -2864,28 +2851,56 @@ function renderResults(data, targetId = "results") {
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
       const btn = document.getElementById("monitorBtn"); 
-      btn.disabled = true; 
       
       if (isMonitoring) {
-        btn.textContent = "Disabling...";
-        try {
-          await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
-          isMonitoring = false;
-          btn.textContent = "🔔 Enable Alerts"; 
-          btn.style.borderColor = "rgba(16,185,129,0.3)";
-          btn.style.color = "var(--brand-emerald)";
-        } catch (err) { btn.textContent = "Error"; }
+        // --- SHOW WARNING POPUP MODAL ---
+        if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
+        const modalHtml = `
+          <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+            <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+              <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
+              <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
+              <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for this specific website for the next 24 hours. Do you wish to continue?</p>
+              <div style="display:flex; gap: 12px;">
+                <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Continue</button>
+                <button id="cancelDisableBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.insertAdjacentHTML("beforeend", modalHtml);
+        
+        document.getElementById("cancelDisableBtn").onclick = () => document.getElementById("disableModal").remove();
+        
+        document.getElementById("confirmDisableBtn").onclick = async () => {
+           document.getElementById("disableModal").remove();
+           btn.disabled = true;
+           btn.textContent = "Disabling...";
+           try {
+             const res = await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
+             const data = await res.json();
+             if (data.error) throw new Error(data.error);
+             isMonitoring = false;
+             btn.textContent = "🔔 Enable Alerts"; 
+             btn.style.borderColor = "rgba(16,185,129,0.3)";
+             btn.style.color = "var(--brand-emerald)";
+           } catch (err) { alert(err.message); btn.textContent = "✓ Alerts Active"; }
+           btn.disabled = false;
+        };
       } else {
+        btn.disabled = true;
         btn.textContent = "Configuring...";
         try {
-          await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          const res = await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
           isMonitoring = true;
           btn.textContent = "✓ Alerts Active"; 
           btn.style.borderColor = "var(--brand-emerald)";
           btn.style.color = "var(--brand-emerald)";
-        } catch (err) { btn.textContent = "Error"; }
+        } catch (err) { alert(err.message); btn.textContent = "🔔 Enable Alerts"; }
+        btn.disabled = false;
       }
-      btn.disabled = false;
     });
   }
 
@@ -2979,8 +2994,9 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
+import { sendAlertEmail } from "./email-service.js"; 
 
 const app = express();
 app.set("trust proxy", 1); 
@@ -3165,16 +3181,97 @@ app.post("/api/verification/check", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
-// ---------- Monitors & Toggles ----------
-app.post("/api/monitors", async (req, res) => { if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); res.json({ success: true }); });
+// ---------- Monitors & Toggles (SMART ALERTS & CONSTRAINTS INTEGRATED) ----------
+
+// Helper function to verify user hasn't hit the 5 site limit or 24-hr cooldown
+async function checkMonitorConstraints(userId, hostname) {
+  const monitors = await getUserMonitors(userId);
+  const activeCount = monitors.filter(m => m.is_active === 1).length;
+  
+  if (activeCount >= 5) {
+    return { allowed: false, reason: "Limit reached: You can only monitor up to 5 websites simultaneously." };
+  }
+  
+  const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
+  if (existing && existing.disabled_at) {
+    const hoursSinceDisabled = (Date.now() - existing.disabled_at) / (1000 * 60 * 60);
+    if (hoursSinceDisabled < 24) {
+      const remaining = Math.ceil(24 - hoursSinceDisabled);
+      return { allowed: false, reason: `Cooldown Active: You cannot re-enable alerts for this website for another ${remaining} hours.` };
+    }
+  }
+  return { allowed: true };
+}
+
+app.post("/api/monitors", async (req, res) => { 
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); 
+  
+  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+  if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+
+  await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
+  
+  const latest = await getLatestScan(req.body.hostname);
+  if (latest && latest.score !== undefined) {
+     await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
+     await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
+  }
+  
+  res.json({ success: true }); 
+});
+
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
+
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+  try { 
+    const monitors = await getUserMonitors(req.user.id);
+    const target = monitors.find(m => m.id == req.params.id);
+    if (!target) return res.status(404).json({ error: "Monitor not found" });
+
+    if (req.body.isActive) {
+      const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
+      if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+    }
+    
+    await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); 
+    
+    if (req.body.isActive) {
+       const latest = await getLatestScan(target.hostname);
+       if (latest && latest.score !== undefined) {
+          await updateMonitorScore(req.user.id, target.hostname, latest.score);
+          await sendAlertEmail(req.user.email, target.hostname, null, latest.score, "activated");
+       }
+    } else {
+       await sendAlertEmail(req.user.email, target.hostname, null, null, "deactivated");
+    }
+
+    res.json({ success: true }); 
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+  try { 
+    if (req.body.isActive) {
+       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+    }
+
+    await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); 
+    
+    if (req.body.isActive) {
+       const latest = await getLatestScan(req.body.hostname);
+       if (latest && latest.score !== undefined) {
+          await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
+          await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
+       }
+    } else {
+       await sendAlertEmail(req.user.email, req.body.hostname, null, null, "deactivated");
+    }
+    
+    res.json({ success: true }); 
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ---------- PDF Generation ----------

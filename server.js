@@ -19,7 +19,7 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore, deleteMonitor } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 import { sendAlertEmail } from "./email-service.js"; 
 
@@ -210,11 +210,11 @@ app.post("/api/verification/check", async (req, res) => {
 
 async function checkMonitorConstraints(userId, hostname) {
   const monitors = await getUserMonitors(userId);
-  // Only count other active domains towards the 5 monitor limit
-  const activeCount = monitors.filter(m => m.is_active === 1 && m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
+  // Count ALL domains in their list (active or inactive) to enforce 5-slot total limit
+  const totalCount = monitors.filter(m => m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
   
-  if (activeCount >= 5) {
-    return { allowed: false, reason: "Limit reached: You can only monitor up to 5 websites simultaneously." };
+  if (totalCount >= 5) {
+    return { allowed: false, reason: "Limit reached: You can only have 5 websites in your Command Center total. Please delete an existing monitor to free up a slot." };
   }
   
   const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
@@ -247,6 +247,15 @@ app.post("/api/monitors", async (req, res) => {
 
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
 
+// NEW DELETE ENDPOINT
+app.delete("/api/monitors/:id", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try {
+    await deleteMonitor(req.user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
@@ -257,10 +266,7 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
     const wasActive = Boolean(target.is_active);
     const willBeActive = Boolean(req.body.isActive);
 
-    // Guard against duplicate triggers
-    if (wasActive === willBeActive) {
-      return res.json({ success: true, message: "No change" });
-    }
+    if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
       const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
@@ -293,10 +299,7 @@ app.patch("/api/monitors/toggle-domain", async (req, res) => {
     const wasActive = Boolean(target.is_active);
     const willBeActive = Boolean(req.body.isActive);
 
-    // Guard against duplicate triggers
-    if (wasActive === willBeActive) {
-      return res.json({ success: true, message: "No change" });
-    }
+    if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
        const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
