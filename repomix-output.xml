@@ -40,6 +40,9 @@ The content is organized as follows:
 </file_summary>
 
 <directory_structure>
+.github/
+  workflows/
+    active-scan.yml
 public/
   app.js
   dashboard.html
@@ -62,130 +65,51 @@ server.js
 <files>
 This section contains the contents of the repository's files.
 
-<file path="public/dashboard.html">
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SiteScanner — Dashboard</title>
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body>
-  <div class="app-container">
-    <!-- Main Navigation Bar -->
-    <nav class="app-nav">
-      <a href="/" class="nav-brand">
-        <span class="nav-brand-badge"></span>
-        SiteScanner
-      </a>
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <a href="/" style="color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;">Run New Scan</a>
-        <div id="authNavContainer" style="position: relative;"></div>
-      </div>
-    </nav>
+<file path=".github/workflows/active-scan.yml">
+name: On-Demand Active DAST Worker
 
-    <header style="margin-bottom: 40px;">
-      <h1 style="font-size: 2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Your Dashboard</h1>
-      <p style="color: var(--text-secondary);">Manage your security audits and automated email alerts.</p>
-    </header>
+on:
+  repository_dispatch:
+    types: [active_dast_scan]
 
-    <main>
-      <div class="card" style="padding: 0; overflow: hidden;">
-        <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
-          <h3 style="font-size: 1.05rem; color: #fff;">Active Monitored Targets</h3>
-          <span style="font-size: 0.8rem; color: var(--text-tertiary);">Weekly Scans</span>
-        </div>
-        
-        <div id="monitorsList">
-          <div style="padding: 48px; text-align: center; color: var(--text-tertiary);">
-            Loading your monitors...
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
+jobs:
+  dast_scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
 
-  <script src="/render.js"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", async () => {
-      // Wait for session to initialize
-      if (window.authReady) await window.authReady;
+    steps:
+      - name: Validate Target Payload
+        run: |
+          if [ -z "${{ github.event.client_payload.hostname }}" ]; then
+            echo "Error: Target hostname is missing"
+            exit 1
+          fi
+          echo "Initiating baseline audit for: ${{ github.event.client_payload.hostname }}"
 
-      if (!currentUser) {
-        window.location.href = "/";
-        return;
-      }
+      - name: Setup Output Workspace
+        run: mkdir -p zap-workdir && chmod 777 zap-workdir
 
-      loadMonitors();
+      - name: Run Baseline Assessment
+        run: |
+          docker run --user root -v $(pwd)/zap-workdir:/zap/wrk/:rw \
+            -t zaproxy/zap-stable zap-baseline.py \
+            -t "https://${{ github.event.client_payload.hostname }}" \
+            -J report.json || true
 
-      async function loadMonitors() {
-        const listEl = document.getElementById("monitorsList");
-        try {
-          const res = await fetch("/api/monitors");
-          const monitors = await res.json();
+      - name: Post Results Back to SiteScanner
+        if: always()
+        run: |
+          REPORT_FILE="zap-workdir/report.json"
+          if [ -f "$REPORT_FILE" ]; then
+            REPORT_DATA=$(cat "$REPORT_FILE")
+          else
+            REPORT_DATA='{"site": [], "error": "Report file was not generated"}'
+          fi
 
-          if (monitors.length === 0) {
-            listEl.innerHTML = `
-              <div style="padding: 48px; text-align: center;">
-                <div style="font-size: 2rem; margin-bottom: 12px;">📭</div>
-                <strong style="color: #fff; display: block; margin-bottom: 8px;">No targets monitored yet</strong>
-                <p style="color: var(--text-secondary); font-size: 0.9rem;">Run a deep scan on a domain and click 'Enable Alerts' to see it here.</p>
-              </div>`;
-            return;
-          }
-
-          listEl.innerHTML = monitors.map(m => `
-            <div style="padding: 20px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center; background: ${m.is_active ? 'transparent' : 'rgba(0,0,0,0.2)'};">
-              
-              <div>
-                <strong style="font-size: 1.1rem; color: ${m.is_active ? '#fff' : 'var(--text-tertiary)'}; display: block; margin-bottom: 4px;">${m.hostname}</strong>
-                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 12px;">
-                  <span>Last Score: <strong style="color: ${m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}">${m.last_score || 'Pending'}</strong></span>
-                  <span>Threshold: <strong style="color: #fff;">Drop below ${m.alert_threshold}</strong></span>
-                </div>
-              </div>
-
-              <div style="display: flex; align-items: center; gap: 16px;">
-                <a href="/report/${encodeURIComponent(m.hostname)}" class="cta-button" style="padding: 6px 12px; font-size: 0.8rem; background: transparent;">View Report</a>
-                
-                <label style="display: flex; align-items: center; cursor: pointer; position: relative;">
-                  <input type="checkbox" class="toggle-monitor-btn" data-id="${m.id}" ${m.is_active ? 'checked' : ''} style="opacity: 0; position: absolute; width: 0; height: 0;">
-                  <div style="width: 44px; height: 24px; background: ${m.is_active ? 'var(--brand-emerald)' : 'var(--surface-border)'}; border-radius: 9999px; position: relative; transition: background 0.3s;">
-                    <div style="width: 18px; height: 18px; background: #fff; border-radius: 50%; position: absolute; top: 3px; left: ${m.is_active ? '23px' : '3px'}; transition: left 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
-                  </div>
-                </label>
-              </div>
-
-            </div>
-          `).join("");
-
-          // Attach toggle listeners
-          document.querySelectorAll('.toggle-monitor-btn').forEach(input => {
-            input.addEventListener('change', async (e) => {
-              const id = e.target.getAttribute('data-id');
-              const isActive = e.target.checked;
-              
-              // Optimistic UI update handled by the CSS inline styles, just trigger backend
-              await fetch(`/api/monitors/${id}/toggle`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ isActive })
-              });
-              
-              // Reload to refresh styles smoothly
-              loadMonitors();
-            });
-          });
-
-        } catch (err) {
-          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
-        }
-      }
-    });
-  </script>
-</body>
-</html>
+          curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "x-scan-signature: ${{ github.event.client_payload.signature }}" \
+            -d "{\"hostname\":\"${{ github.event.client_payload.hostname }}\",\"status\":\"completed\",\"results\":$REPORT_DATA}"
 </file>
 
 <file path="public/robots.txt">
@@ -256,160 +180,6 @@ export async function sendAuditAlert({ to, hostname, currentScore, previousScore
     `,
   });
 }
-</file>
-
-<file path="fix-code-generator.js">
-// fix-code-generator.js
-//
-// Generates actual, syntactically correct configuration snippets for the
-// missing security headers found in a scan — tailored to the detected
-// hosting platform. This is NOT AI-generated text; every template here is
-// hand-written against each platform's own official documentation syntax:
-//
-//   Vercel   -> next.config.js headers() API
-//              https://nextjs.org/docs/app/api-reference/config/next-config-js/headers
-//   Apache   -> mod_headers "Header set" directive (.htaccess)
-//              https://httpd.apache.org/docs/current/mod/mod_headers.html
-//   Nginx    -> add_header directive (nginx.conf / server block)
-//              https://nginx.org/en/docs/http/ngx_http_headers_module.html
-//   Netlify  -> _headers file syntax
-//              https://docs.netlify.com/routing/headers/
-//   Generic  -> raw HTTP header names/values, for any other stack
-//
-// IMPORTANT FRAMING: this is a correct STARTING POINT to review and adapt,
-// not a blind paste-and-forget fix. Every existing site has its own config
-// already in place, and merging carelessly can break things. The generated
-// output always carries that caveat — this file must never present output
-// as guaranteed-safe-to-deploy-as-is.
-
-const HEADER_VALUES = {
-  "content-security-policy": "default-src 'self'",
-  "strict-transport-security": "max-age=63072000; includeSubDomains",
-  "x-frame-options": "SAMEORIGIN",
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "strict-origin-when-cross-origin",
-  "permissions-policy": "camera=(), microphone=(), geolocation=()",
-};
-
-// Human-readable header name as it appears in actual HTTP responses
-// (the raw scan data lowercases these, but real headers are capitalized).
-const HEADER_DISPLAY_NAMES = {
-  "content-security-policy": "Content-Security-Policy",
-  "strict-transport-security": "Strict-Transport-Security",
-  "x-frame-options": "X-Frame-Options",
-  "x-content-type-options": "X-Content-Type-Options",
-  "referrer-policy": "Referrer-Policy",
-  "permissions-policy": "Permissions-Policy",
-};
-
-function generateVercelSnippet(missingHeaders) {
-  const headerEntries = missingHeaders
-    .map(
-      (h) => `          {
-            key: '${HEADER_DISPLAY_NAMES[h]}',
-            value: "${HEADER_VALUES[h]}",
-          },`
-    )
-    .join("\n");
-
-  return `// next.config.js
-module.exports = {
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-${headerEntries}
-        ],
-      },
-    ];
-  },
-};`;
-}
-
-function generateApacheSnippet(missingHeaders) {
-  const lines = missingHeaders
-    .map((h) => `    Header set ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}"`)
-    .join("\n");
-
-  return `# .htaccess (requires mod_headers enabled)
-<IfModule mod_headers.c>
-${lines}
-</IfModule>`;
-}
-
-function generateNginxSnippet(missingHeaders) {
-  const lines = missingHeaders
-    .map((h) => `    add_header ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}" always;`)
-    .join("\n");
-
-  return `# Inside your server { } block in nginx.conf
-${lines}`;
-}
-
-function generateNetlifySnippet(missingHeaders) {
-  const lines = missingHeaders
-    .map((h) => `  ${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
-    .join("\n");
-
-  return `# _headers file, placed in your site's publish directory
-/*
-${lines}`;
-}
-
-function generateGenericSnippet(missingHeaders) {
-  const lines = missingHeaders
-    .map((h) => `${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
-    .join("\n");
-
-  return `# Raw HTTP header names and values — add these via whatever
-# mechanism your server/framework/CDN provides:
-${lines}`;
-}
-
-function generateFixCode(platform, missingHeaders) {
-  if (!missingHeaders || missingHeaders.length === 0) return null;
-
-  // Only generate for headers we have known-good values for
-  const known = missingHeaders.filter((h) => HEADER_VALUES[h]);
-  if (known.length === 0) return null;
-
-  let code;
-  let label;
-
-  switch (platform) {
-    case "vercel":
-      code = generateVercelSnippet(known);
-      label = "next.config.js (Vercel / Next.js)";
-      break;
-    case "apache":
-      code = generateApacheSnippet(known);
-      label = ".htaccess (Apache)";
-      break;
-    case "nginx":
-      code = generateNginxSnippet(known);
-      label = "nginx.conf (Nginx)";
-      break;
-    case "wordpress":
-      // WordPress usually sits on Apache or Nginx under the hood — Apache
-      // (.htaccess) is the far more common default on shared WP hosting.
-      code = generateApacheSnippet(known);
-      label = ".htaccess (most WordPress hosts use Apache)";
-      break;
-    default:
-      code = generateGenericSnippet(known);
-      label = "Raw header values (platform not detected)";
-  }
-
-  return {
-    label,
-    code,
-    disclaimer:
-      "This is a correct starting point based on standard syntax for this platform — not a guaranteed drop-in fix. Review it against your existing config before deploying, since merging blindly can break an existing setup.",
-  };
-}
-
-export { generateFixCode };
 </file>
 
 <file path="README.md">
@@ -534,41 +304,763 @@ export function initCronJobs(runScanPipeline) {
 }
 </file>
 
+<file path="fix-code-generator.js">
+// fix-code-generator.js
+
+const HEADER_VALUES = {
+  "content-security-policy": "default-src 'self'",
+  "strict-transport-security": "max-age=63072000; includeSubDomains",
+  "x-frame-options": "SAMEORIGIN",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+};
+
+const HEADER_DISPLAY_NAMES = {
+  "content-security-policy": "Content-Security-Policy",
+  "strict-transport-security": "Strict-Transport-Security",
+  "x-frame-options": "X-Frame-Options",
+  "x-content-type-options": "X-Content-Type-Options",
+  "referrer-policy": "Referrer-Policy",
+  "permissions-policy": "Permissions-Policy",
+};
+
+function generateVercelSnippet(missingHeaders) {
+  const headerEntries = missingHeaders
+    .map(h => `            { "key": "${HEADER_DISPLAY_NAMES[h]}", "value": "${HEADER_VALUES[h]}" }`)
+    .join(",\n");
+
+  return `// vercel.json (Works for ANY framework on Vercel)
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+${headerEntries}
+      ]
+    }
+  ]
+}`;
+}
+
+function generateApacheSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `    Header set ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}"`)
+    .join("\n");
+
+  return `# .htaccess (requires mod_headers enabled)
+<IfModule mod_headers.c>
+${lines}
+</IfModule>`;
+}
+
+function generateNginxSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `    add_header ${HEADER_DISPLAY_NAMES[h]} "${HEADER_VALUES[h]}" always;`)
+    .join("\n");
+
+  return `# Inside your server { } block in nginx.conf
+${lines}`;
+}
+
+function generateNetlifySnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `  ${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
+    .join("\n");
+
+  return `# _headers file, placed in your site's publish directory
+/*
+${lines}`;
+}
+
+function generateGenericSnippet(missingHeaders) {
+  const lines = missingHeaders
+    .map((h) => `${HEADER_DISPLAY_NAMES[h]}: ${HEADER_VALUES[h]}`)
+    .join("\n");
+
+  return `# Raw HTTP header names and values — add these via whatever
+# mechanism your server/framework/CDN provides:
+${lines}`;
+}
+
+function generateFixCode(platform, missingHeaders) {
+  if (!missingHeaders || missingHeaders.length === 0) return null;
+
+  const known = missingHeaders.filter((h) => HEADER_VALUES[h]);
+  if (known.length === 0) return null;
+
+  let code;
+  let label;
+
+  switch (platform) {
+    case "vercel":
+      code = generateVercelSnippet(known);
+      label = "vercel.json (Vercel Infrastructure)";
+      break;
+    case "apache":
+      code = generateApacheSnippet(known);
+      label = ".htaccess (Apache)";
+      break;
+    case "nginx":
+      code = generateNginxSnippet(known);
+      label = "nginx.conf (Nginx)";
+      break;
+    case "wordpress":
+      code = generateApacheSnippet(known);
+      label = ".htaccess (most WordPress hosts use Apache)";
+      break;
+    default:
+      code = generateGenericSnippet(known);
+      label = "Raw header values (platform not detected)";
+  }
+
+  return {
+    label,
+    code,
+    disclaimer:
+      "This is a correct starting point based on standard syntax for this platform — not a guaranteed drop-in fix. Review it against your existing config before deploying, since merging blindly can break an existing setup.",
+  };
+}
+
+export { generateFixCode };
+</file>
+
+<file path="public/dashboard.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteScanner — Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    /* Dashboard Specific UI Elements */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 2.5fr;
+      gap: 24px;
+      align-items: start;
+    }
+    
+    @media (max-width: 768px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+
+    .stat-block {
+      padding: 20px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+      margin: 8px 0 4px;
+      line-height: 1;
+    }
+
+    /* iOS-Style Smooth Toggles */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 26px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--surface-border-hover);
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 34px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: var(--brand-emerald);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    /* Monitor Row Transitions */
+    .monitor-row {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background-color 0.3s ease, opacity 0.3s ease;
+    }
+    
+    .monitor-row.inactive {
+      background: rgba(0,0,0,0.25);
+      opacity: 0.6;
+    }
+    
+    .monitor-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      display: block;
+      margin-bottom: 4px;
+      transition: color 0.3s ease;
+    }
+    
+    .monitor-row.inactive .monitor-title {
+      color: var(--text-tertiary);
+      text-decoration: line-through;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container" style="max-width: 1100px;">
+    <!-- Main Navigation Bar -->
+    <nav class="app-nav">
+      <a href="/" class="nav-brand">
+        <span class="nav-brand-badge"></span>
+        SiteScanner
+      </a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent;">+ New Scan</a>
+        <div id="authNavContainer" style="position: relative;"></div>
+      </div>
+    </nav>
+
+    <header style="margin-bottom: 32px;">
+      <h1 style="font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.02em;">Command Center</h1>
+      <p style="color: var(--text-secondary);">Manage your security posture, active monitors, and billing.</p>
+    </header>
+
+    <main class="dashboard-grid">
+      <!-- LEFT COLUMN: Account & Billing Overview -->
+      <aside>
+        <div class="card" style="padding: 24px;">
+          <h3 style="color: #fff; font-size: 1rem; margin-bottom: 16px;">Account Overview</h3>
+          
+          <div class="stat-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
+            <div id="planStatusUi" style="margin-top: 8px;">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+
+          <div class="stat-block">
+            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Avg Security Score</span>
+            <div id="avgScoreDisplay" class="stat-value">--</div>
+            <span style="font-size: 0.8rem; color: var(--text-tertiary);">Across all targets</span>
+          </div>
+
+          <button class="cta-button" style="width: 100%; background: transparent; color: var(--text-secondary); border-color: var(--surface-border);">Manage Billing</button>
+        </div>
+      </aside>
+
+      <!-- RIGHT COLUMN: The Monitor List -->
+      <section>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div style="background: rgba(15,23,42,0.6); padding: 16px 24px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.05rem; color: #fff;">Automated Threat Monitors</h3>
+            <span style="font-size: 0.8rem; color: var(--text-tertiary); background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;" id="monitorCount">0 Active</span>
+          </div>
+          
+          <div id="monitorsList">
+            <div style="padding: 64px; text-align: center; color: var(--text-tertiary);">
+              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">Loading security telemetry...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/render.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      if (window.authReady) await window.authReady;
+      if (!currentUser) return window.location.href = "/";
+
+      // 1. Render Billing UI (Dynamically calculated based on purchase date)
+      const planUi = document.getElementById("planStatusUi");
+      if (currentUser.is_pro) {
+        let daysRemaining = 30;
+        let progressPercent = 0;
+        
+        if (currentUser.pro_started_at) {
+          // SQLite CURRENT_TIMESTAMP returns UTC without a 'Z'. Add it to parse locally.
+          const dbDateStr = currentUser.pro_started_at.replace(" ", "T") + "Z";
+          const startDate = new Date(dbDateStr);
+          const now = new Date();
+          
+          // Calculate elapsed days
+          const diffDays = Math.abs(now - startDate) / (1000 * 60 * 60 * 24);
+          
+          // Assuming a standard rolling 30-day billing cycle
+          const cycleDay = diffDays % 30; 
+          daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
+          progressPercent = Math.round((cycleDay / 30) * 100);
+        }
+
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: var(--brand-purple); border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">PRO TIER</span>
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
+          <div style="width: 100%; height: 4px; background: var(--surface-border); border-radius: 2px; margin-top: 8px; overflow: hidden;">
+            <div style="width: ${progressPercent}%; height: 100%; background: var(--brand-purple);"></div>
+          </div>`;
+      } else {
+        planUi.innerHTML = `
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.1); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">FREE TIER</span>
+          <div style="font-size: 0.85rem; color: var(--text-tertiary);">Limited to manual passive scans.</div>
+          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 12px; padding: 8px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
+        `;
+      }
+
+      loadMonitors();
+
+      async function loadMonitors() {
+        const listEl = document.getElementById("monitorsList");
+        try {
+          const res = await fetch("/api/monitors");
+          const monitors = await res.json();
+
+          // Empty State Design
+          if (monitors.length === 0) {
+            document.getElementById("monitorCount").textContent = "0 Active";
+            listEl.innerHTML = `
+              <div style="padding: 64px 24px; text-align: center;">
+                <div style="font-size: 2.5rem; margin-bottom: 16px; opacity: 0.5;">📭</div>
+                <strong style="color: #fff; display: block; font-size: 1.1rem; margin-bottom: 8px;">No targets monitored yet</strong>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 300px; margin: 0 auto 24px;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
+                <a href="/" class="cta-button" style="display: inline-block; background: #fff; color: #090d16;">Scan a Domain</a>
+              </div>`;
+            return;
+          }
+
+          // Calculate Dashboard Stats
+          const activeMonitors = monitors.filter(m => m.is_active);
+          document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
+          
+          if (activeMonitors.length > 0) {
+            const validScores = activeMonitors.map(m => m.last_score).filter(s => s !== null);
+            if (validScores.length > 0) {
+              const avg = Math.round(validScores.reduce((a,b)=>a+b,0) / validScores.length);
+              const avgEl = document.getElementById("avgScoreDisplay");
+              avgEl.textContent = avg;
+              avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
+            }
+          }
+
+          // Render Rows
+          listEl.innerHTML = monitors.map(m => {
+            const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+            const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
+            
+            return `
+            <div class="${rowClass}" id="monitor-row-${m.id}">
+              <div>
+                <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
+                  <span>Score: <strong style="color: ${scoreColor}">${m.last_score || 'Pending'}</strong></span>
+                  <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
+                  <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 24px;">
+                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.85rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600;">View Report</a>
+                
+                <label class="toggle-switch">
+                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
+                  <div class="toggle-slider"></div>
+                </label>
+              </div>
+            </div>`;
+          }).join("");
+
+          // --- OPTIMISTIC UI TOGGLE LOGIC ---
+          document.querySelectorAll('.optimistic-toggle').forEach(input => {
+            input.addEventListener('change', async (e) => {
+              const id = e.target.getAttribute('data-id');
+              const isActive = e.target.checked;
+              const row = document.getElementById(`monitor-row-${id}`);
+              
+              // 1. Instantly update the UI without waiting for the server
+              if (isActive) {
+                row.classList.remove('inactive');
+              } else {
+                row.classList.add('inactive');
+              }
+
+              // 2. Fire the network request silently in the background
+              try {
+                const res = await fetch(`/api/monitors/${id}/toggle`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ isActive })
+                });
+                
+                if (!res.ok) throw new Error("Toggle failed");
+                
+                // Recalculate stats silently after success
+                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
+                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+
+              } catch (err) {
+                // 3. Rollback the UI if the server failed
+                e.target.checked = !isActive;
+                if (!isActive) row.classList.remove('inactive');
+                else row.classList.add('inactive');
+                alert("Network error. Could not update monitor status.");
+              }
+            });
+          });
+
+        } catch (err) {
+          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
+        }
+      }
+    });
+  </script>
+</body>
+</html>
+</file>
+
+<file path="report-generator.js">
+// report-generator.js
+import { generateFixCode } from "./fix-code-generator.js";
+
+const SHARED_HOST_SUFFIXES = [
+  "vercel.app", "netlify.app", "github.io", "gitlab.io", "pages.dev", 
+  "onrender.com", "fly.dev", "railway.app", "azurewebsites.net", 
+  "herokuapp.com", "firebaseapp.com", "web.app"
+];
+
+function isSharedHostSubdomain(hostname) {
+  const host = (hostname || "").toLowerCase().trim();
+  return SHARED_HOST_SUFFIXES.some(suffix => host.endsWith(`.${suffix}`) || host === suffix);
+}
+
+function detectPlatform(headers, exposedFiles) {
+  const h = headers || {};
+  const server = (h.server || "").toLowerCase();
+  const poweredBy = (h.xPoweredBy || "").toLowerCase();
+
+  if (server.includes("vercel") || h.xVercelId) return "vercel";
+  if (poweredBy.includes("wordpress") || (exposedFiles || []).some(f => f.path.includes("wp-"))) return "wordpress";
+  if (server.includes("nginx")) return "nginx";
+  if (server.includes("apache")) return "apache";
+  if (server.includes("cloudflare")) return "cloudflare";
+  return "unknown";
+}
+
+const HEADER_SEVERITY = {
+  "content-security-policy": 15,
+  "strict-transport-security": 10,
+  "x-frame-options": 5,
+  "x-content-type-options": 5,
+  "referrer-policy": 0, 
+  "permissions-policy": 0,
+};
+
+function calculateScore(raw, hostname = "") {
+  let score = 100;
+  const deductions = [];
+  const sharedHost = isSharedHostSubdomain(hostname);
+
+  if (!raw.tls?.valid) {
+    score -= 40;
+    deductions.push({ reason: "SSL/TLS certificate invalid or unreachable", points: 40 });
+  } else if (raw.tls.daysUntilExpiry !== null && raw.tls.daysUntilExpiry < 14) {
+    score -= 10;
+    deductions.push({ reason: "SSL certificate expiring very soon", points: 10 });
+  }
+
+  (raw.headers?.missing || []).forEach((h) => {
+    const pts = HEADER_SEVERITY[h];
+    if (pts > 0) {
+      score -= pts;
+      deductions.push({ reason: `Missing ${h} header`, points: pts });
+    }
+  });
+
+  const exposedCount = (raw.exposedFiles || []).length;
+  if (exposedCount > 0) {
+    const pts = Math.min(exposedCount * 20, 50);
+    score -= pts;
+    deductions.push({ reason: `${exposedCount} sensitive file(s) publicly exposed`, points: pts });
+  }
+
+  if (!sharedHost) {
+    if (!raw.emailAuth?.spf) {
+      score -= 5;
+      deductions.push({ reason: "No SPF record", points: 5 });
+    }
+    if (!raw.emailAuth?.dmarc) {
+      score -= 5;
+      deductions.push({ reason: "No DMARC record", points: 5 });
+    }
+  }
+
+  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
+  if (insecureCookies.length > 0) {
+    const pts = Math.min(insecureCookies.length * 4, 12);
+    score -= pts;
+    deductions.push({ reason: `${insecureCookies.length} cookie(s) missing Secure/HttpOnly flags`, points: pts });
+  }
+
+  if (raw.cors?.dangerousCombo) {
+    score -= 30;
+    deductions.push({ reason: "Dangerous CORS config: reflects any origin + allows credentials", points: 30 });
+  } else if (raw.cors?.wildcardOpen) {
+    score -= 5;
+    deductions.push({ reason: "CORS wide open (Access-Control-Allow-Origin: *)", points: 5 });
+  }
+
+  if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) {
+    const pts = Math.min(raw.mixedContent.insecureResources.length * 5, 20);
+    score -= pts;
+    deductions.push({ reason: `${raw.mixedContent.insecureResources.length} insecure (HTTP) resource(s) on HTTPS page`, points: pts });
+  }
+
+  if (raw.malware?.checked && raw.malware.flagged) {
+    score -= 60;
+    deductions.push({ reason: `Flagged by Google Safe Browsing: ${(raw.malware.threatTypes || []).join(", ")}`, points: 60 });
+  }
+
+  return { score: Math.max(0, Math.round(score)), deductions, sharedHost };
+}
+
+const HEADER_EXPLANATIONS = {
+  "content-security-policy": {
+    what: "Your site does not declare which script, style, and media sources the browser is permitted to execute.",
+    why: "Without this header, malicious code injected via cross-site scripting (XSS) executes without restriction.",
+    fix: {
+      vercel: "Add a Content-Security-Policy mapping to your vercel.json configuration file.",
+      wordpress: "Configure CSP via a security plugin (e.g., Wordfence or Really Simple SSL).",
+      unknown: "Define Content-Security-Policy in your web server config starting with default-src 'self'.",
+    },
+  },
+  "strict-transport-security": {
+    what: "Your site does not instruct browsers to exclusively use HTTPS for future connections.",
+    why: "Users can be downgraded to plain unencrypted HTTP during man-in-the-middle network attacks.",
+    fix: {
+      vercel: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains to your vercel.json file.",
+      wordpress: "Enable HSTS in your SSL configuration plugin.",
+      unknown: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains at your edge or web server.",
+    },
+  },
+  "x-frame-options": {
+    what: "Your site does not declare whether other domains can embed it inside an iframe.",
+    why: "Attackers can frame your site transparently and trick users into clicking buttons (Clickjacking).",
+    fix: {
+      vercel: "Add X-Frame-Options: SAMEORIGIN or DENY to your vercel.json file.",
+      wordpress: "Enable frame protection in your site headers or security plugin settings.",
+      unknown: "Add X-Frame-Options: SAMEORIGIN in your server block.",
+    },
+  },
+  "x-content-type-options": {
+    what: "Browsers are permitted to guess MIME types rather than adhering strictly to Content-Type headers.",
+    why: "An uploaded benign file like an image could be interpreted and executed by the browser as JavaScript.",
+    fix: {
+      vercel: "Add X-Content-Type-Options: nosniff to your vercel.json file.",
+      wordpress: "Toggle nosniff headers in your server or security plugin.",
+      unknown: "Add X-Content-Type-Options: nosniff to your response headers.",
+    },
+  },
+};
+
+function scoreToGrade(score) {
+  if (score >= 90) return "A";
+  if (score >= 75) return "B";
+  if (score >= 60) return "C";
+  if (score >= 40) return "D";
+  return "F";
+}
+
+function generateReport(raw, hostname) {
+  const { score, deductions, sharedHost } = calculateScore(raw, hostname);
+  const platform = detectPlatform(raw.headers, raw.exposedFiles);
+  const grade = scoreToGrade(score);
+
+  const lines = [];
+  lines.push(`# Security Scan Report for ${hostname}`);
+  lines.push("");
+  lines.push(`## Overall Grade: ${grade} (${score}/100)`);
+  lines.push("");
+
+  if (score >= 90) {
+    lines.push("Strong configuration. Your site has solid core security and defense-in-depth measures in place.");
+  } else if (score >= 75) {
+    lines.push("Good foundation. Essential defenses are present, with straightforward hardening steps remaining.");
+  } else if (score >= 60) {
+    lines.push("Moderate posture. Core connectivity is working, but key browser-level security policies are missing.");
+  } else {
+    lines.push("Vulnerable baseline. Critical security configurations or infrastructure protections are absent.");
+  }
+  lines.push("");
+
+  const sortedDeductions = [...deductions].sort((a, b) => b.points - a.points);
+  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
+
+  if (sortedDeductions.length === 0) {
+    lines.push("## Findings");
+    lines.push("All core passive checks passed. Continue monitoring SSL certificate expiration dates.");
+  } else {
+    lines.push("## Issues Found (Ranked by Severity)");
+    lines.push("");
+
+    let num = 1;
+
+    if (raw.malware?.checked && raw.malware.flagged) {
+      lines.push(`### ${num}. 🚨 Flagged by Google Safe Browsing`);
+      lines.push(`**Finding:** Identified under threats: ${(raw.malware.threatTypes || []).join(", ").toLowerCase()}.`);
+      lines.push(`**Remediation:** Inspect application code for unauthorized modifications and request a malware review in Google Search Console.`);
+      lines.push("");
+      num++;
+    }
+
+    if (!raw.tls?.valid) {
+      lines.push(`### ${num}. Invalid SSL Certificate`);
+      lines.push(`**Finding:** ${raw.tls?.error || "Certificate validation failed."}`);
+      lines.push(`**Remediation:** Renew or reissue your certificate via your hosting dashboard or Let's Encrypt.`);
+      lines.push("");
+      num++;
+    }
+
+    if ((raw.exposedFiles || []).length > 0) {
+      lines.push(`### ${num}. Sensitive Files Publicly Accessible`);
+      lines.push(`**Finding:** Reachable paths: ${raw.exposedFiles.map(f => f.path).join(", ")}`);
+      lines.push(`**Remediation:** Restrict web server access to these paths or remove them from the deployment output immediately.`);
+      lines.push("");
+      num++;
+    }
+
+    const missingHeaders = (raw.headers?.missing || []).filter(h => HEADER_SEVERITY[h] > 0).sort(
+      (a, b) => HEADER_SEVERITY[b] - HEADER_SEVERITY[a]
+    );
+    
+    missingHeaders.forEach((h) => {
+      const info = HEADER_EXPLANATIONS[h];
+      if (!info) return;
+      lines.push(`### ${num}. Missing Header: ${h}`);
+      lines.push(`**Risk:** ${info.why}`);
+      lines.push(`**Remediation:** ${info.fix[platform] || info.fix.unknown}`);
+      lines.push("");
+      num++;
+    });
+
+    const fixCode = generateFixCode(platform, missingHeaders);
+    if (fixCode) {
+      lines.push(`### Recommended Configuration: ${fixCode.label}`);
+      lines.push(`_${fixCode.disclaimer}_`);
+      lines.push("");
+      lines.push("```");
+      lines.push(fixCode.code);
+      lines.push("```");
+      lines.push("");
+    }
+
+    if (!sharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) {
+      lines.push(`### ${num}. Missing Email Spoofing Records`);
+      lines.push(`**Risk:** Attackers can send spoofed emails claiming to originate from your domain.`);
+      lines.push(`**Remediation:** Add valid SPF and DMARC TXT records in your DNS provider control panel.`);
+      lines.push("");
+      num++;
+    }
+
+    if (insecureCookies.length > 0) {
+      lines.push(`### ${num}. Insecure Cookie Attributes`);
+      lines.push(`**Finding:** Cookies lacking Secure or HttpOnly: ${insecureCookies.map(c => c.name).join(", ")}.`);
+      lines.push(`**Remediation:** Append Secure; HttpOnly; SameSite=Lax flags when setting cookies.`);
+      lines.push("");
+      num++;
+    }
+  }
+
+  const working = [];
+  if (raw.tls?.valid) working.push("Valid SSL/TLS certificate configured");
+  if ((raw.exposedFiles || []).length === 0) working.push("No exposed environment or source repository files found");
+  (raw.headers?.present || []).forEach((h) => working.push(`Security header present: ${h}`));
+  if (sharedHost) {
+    working.push("Email SPF/DMARC: Exempted (Shared hosting subdomain)");
+  } else {
+    if (raw.emailAuth?.spf) working.push("SPF record verified in DNS");
+    if (raw.emailAuth?.dmarc) working.push("DMARC record verified in DNS");
+  }
+
+  if (working.length > 0) {
+    lines.push("## Passing Checks");
+    working.forEach((w) => lines.push(`* ${w}`));
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+export { generateReport, calculateScore, detectPlatform, scoreToGrade, isSharedHostSubdomain };
+</file>
+
 <file path="public/app.js">
 // public/app.js
 document.addEventListener('DOMContentLoaded', () => {
-  let scanMode = 'quick';
+  let scanMode = 'full';
 
-  const tabQuick = document.getElementById('tabQuick');
   const tabFull = document.getElementById('tabFull');
   const tabActive = document.getElementById('tabActive');
   const publicFeedOption = document.getElementById('publicFeedOption');
   const scanForm = document.getElementById('scanForm');
   const targetUrlInput = document.getElementById('targetUrl');
   const submitScanBtn = document.getElementById('submitScanBtn');
-  const quickCheckResult = document.getElementById('quickCheckResult');
   const resultsEl = document.getElementById('results');
 
   function updateTabs(activeBtn) {
-    [tabQuick, tabFull, tabActive].forEach(b => b && b.classList.remove('active'));
+    [tabFull, tabActive].forEach(b => b && b.classList.remove('active'));
     activeBtn.classList.add('active');
     
     if (scanMode === 'active') {
       submitScanBtn.textContent = 'Launch Active Exploits';
-      submitScanBtn.style.background = 'var(--brand-emerald)'; submitScanBtn.style.color = '#fff';
+      submitScanBtn.style.background = 'var(--brand-emerald)'; 
+      submitScanBtn.style.color = '#fff';
       if(publicFeedOption) publicFeedOption.style.display = 'none';
     } else {
-      submitScanBtn.textContent = scanMode === 'full' ? 'Run Deep Scan' : 'Check Target';
-      submitScanBtn.style.background = '#fff'; submitScanBtn.style.color = '#090d16';
-      if(publicFeedOption) publicFeedOption.style.display = scanMode === 'full' ? 'inline-flex' : 'none';
+      submitScanBtn.textContent = 'Run Standard Audit';
+      submitScanBtn.style.background = '#fff'; 
+      submitScanBtn.style.color = '#090d16';
+      if(publicFeedOption) publicFeedOption.style.display = 'inline-flex';
     }
   }
 
-  tabQuick?.addEventListener('click', () => { scanMode = 'quick'; updateTabs(tabQuick); });
   tabFull?.addEventListener('click', () => { scanMode = 'full'; updateTabs(tabFull); });
   tabActive?.addEventListener('click', () => { scanMode = 'active'; updateTabs(tabActive); });
 
-  function normalizeTarget(input) { let clean = input.trim(); if (!clean) return ''; return clean.replace(/^(https?:\/\/)+/i, '').replace(/\/+$/, ''); }
+  function normalizeTarget(input) { 
+    let clean = input.trim(); 
+    if (!clean) return ''; 
+    return clean.replace(/^(https?:\/\/)+/i, '').replace(/\/+$/, ''); 
+  }
+  
   if (window.loadRecentFeed) window.loadRecentFeed();
 
   scanForm.addEventListener('submit', async (e) => {
@@ -581,34 +1073,50 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scanMode === 'active') {
       if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
       return window.showDnsVerificationModal(rawDomain, async () => {
-        submitScanBtn.disabled = true; submitScanBtn.textContent = 'Injecting Payloads...'; quickCheckResult.style.display = 'none';
-        resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px;"><strong style="color:var(--brand-emerald); display: block;">Verification Passed. Launching Active Vulnerability Exploits...</strong></div>';
+        submitScanBtn.disabled = true; 
+        
+        // Trigger the new beautiful loading animation!
+        if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
+
         try {
           const res = await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain }) });
           const data = await res.json();
+          clearInterval(window.activeLoadingInterval); // Stop the animation
           if (data.error) throw new Error(data.error);
-          if (typeof renderResults === "function") renderResults(data, 'results'); else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
-        } catch (err) { resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; } finally { submitScanBtn.disabled = false; submitScanBtn.textContent = 'Launch Active Exploits'; }
+          if (typeof renderResults === "function") renderResults(data, 'results'); 
+          else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
+        } catch (err) { 
+          clearInterval(window.activeLoadingInterval);
+          resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; 
+        } finally { 
+          submitScanBtn.disabled = false; 
+          submitScanBtn.textContent = 'Launch Active Exploits'; 
+        }
       });
     }
 
-    submitScanBtn.disabled = true; submitScanBtn.textContent = 'Analyzing...'; quickCheckResult.style.display = 'none'; resultsEl.innerHTML = '';
-
-    if (scanMode === 'quick') {
-      try {
-        const res = await fetch('/api/quickcheck', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: rawDomain, ownershipConfirmed: confirmed }) });
-        const data = await res.json(); if (data.error) throw new Error(data.error);
-        const bannerBg = data.status === 'safe' ? 'rgba(16, 185, 129, 0.15)' : data.status === 'warning' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(244, 63, 94, 0.15)';
-        quickCheckResult.innerHTML = `<div class="card" style="background:${bannerBg}; border-color:${data.status === 'safe' ? 'var(--brand-emerald)' : data.status === 'warning' ? 'var(--brand-amber)' : 'var(--brand-rose)'};"><strong style="display:block; margin-bottom: 8px; font-size: 1.05rem;">${data.status === 'safe' ? '✓ Clean' : data.status === 'warning' ? '⚠️ Needs attention' : '🚨 Critical alerts'}</strong></div>`;
-        quickCheckResult.style.display = 'block';
-      } catch (err) { quickCheckResult.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; quickCheckResult.style.display = 'block'; } finally { submitScanBtn.disabled = false; submitScanBtn.textContent = 'Check Target'; }
-    } else {
-      resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px; color: var(--text-secondary);">Running comprehensive test suite...</div>';
-      try {
-        const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain, ownershipConfirmed: confirmed, listPublicly: document.getElementById('listPublicly')?.checked }) });
-        const data = await res.json(); if (data.error) throw new Error(data.error);
-        if (typeof renderResults === "function") { renderResults(data, 'results'); if (window.loadRecentFeed) window.loadRecentFeed(); } else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
-      } catch (err) { resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-rose); color: var(--brand-rose);">Scan Error: ${err.message}</div>`; } finally { submitScanBtn.disabled = false; submitScanBtn.textContent = 'Run Deep Scan'; }
+    submitScanBtn.disabled = true; 
+    
+    // Trigger the new beautiful loading animation!
+    if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
+    
+    try {
+      const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain, ownershipConfirmed: confirmed, listPublicly: document.getElementById('listPublicly')?.checked }) });
+      const data = await res.json(); 
+      clearInterval(window.activeLoadingInterval); // Stop the animation
+      if (data.error) throw new Error(data.error);
+      if (typeof renderResults === "function") { 
+        renderResults(data, 'results'); 
+        if (window.loadRecentFeed) window.loadRecentFeed(); 
+      } else {
+        window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
+      }
+    } catch (err) { 
+      clearInterval(window.activeLoadingInterval);
+      resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-rose); color: var(--brand-rose);">Scan Error: ${err.message}</div>`; 
+    } finally { 
+      submitScanBtn.disabled = false; 
+      submitScanBtn.textContent = 'Run Standard Audit'; 
     }
   });
 });
@@ -1118,10 +1626,63 @@ body {
   line-height: 1.65;
 }
 
+/* ==========================================
+   MARKDOWN RENDER STYLES
+   ========================================== */
+.report h1, .report h2, .report h3, .report h4 {
+  color: #fff;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+.report p {
+  margin-bottom: 1em;
+}
+.report ul, .report ol {
+  padding-left: 24px;
+  margin-bottom: 1em;
+}
+.report li {
+  margin-bottom: 0.4em;
+}
+.report code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--brand-cyan);
+}
+.report pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--surface-border);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+.report pre code {
+  background: transparent;
+  padding: 0;
+  color: #cbd5e1;
+}
+
 /* ==========================================================================
    PRINT / PDF AUDIT EXPORT STYLESHEET
    ========================================================================== */
 @media print {
+  /* Override CSS variables to force light mode for clean PDF exports */
+  :root {
+    --bg: #ffffff !important;
+    --surface: #ffffff !important;
+    --surface-subtle: #f8fafc !important;
+    --surface-border: #e2e8f0 !important;
+    --surface-border-hover: #cbd5e1 !important;
+    --text-primary: #0f172a !important;
+    --text-secondary: #334155 !important;
+    --text-tertiary: #64748b !important;
+  }
+
   @page {
     margin: 1.2cm;
     size: A4 portrait;
@@ -1131,6 +1692,12 @@ body {
     background: #ffffff !important;
     color: #0f172a !important;
     font-size: 11pt;
+  }
+
+  /* Force background SVG strokes to render in PDF */
+  svg {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Hide interactive scan controls, header buttons, inputs, & tickers */
@@ -1151,14 +1718,13 @@ body {
     margin: 0 !important;
   }
 
-  /* Force white cards with clean black/gray borders */
   .card {
     background: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
     box-shadow: none !important;
     color: #0f172a !important;
     margin-bottom: 16px !important;
-    break-inside: avoid;
+    break-inside: auto !important; 
   }
 
   .hero-grade-card {
@@ -1174,12 +1740,15 @@ body {
     stroke: #e2e8f0 !important;
   }
 
+  .result-card, .result-item {
+     break-inside: avoid !important;
+  }
+
   .result-item {
     border-bottom: 1px solid #f1f5f9 !important;
     color: #1e293b !important;
   }
 
-  /* Ensure badges print with high contrast */
   .status-ok {
     background: #ecfdf5 !important;
     color: #065f46 !important;
@@ -1214,306 +1783,9 @@ body {
     background: #f1f5f9 !important;
     border: 1px solid #cbd5e1 !important;
     color: #0f172a !important;
+    break-inside: avoid;
   }
 }
-</file>
-
-<file path="report-generator.js">
-// report-generator.js
-import { generateFixCode } from "./fix-code-generator.js";
-
-// Platforms where users deploy subdomains and cannot modify root DNS records
-const SHARED_HOST_SUFFIXES = [
-  "vercel.app",
-  "netlify.app",
-  "github.io",
-  "gitlab.io",
-  "pages.dev",
-  "onrender.com",
-  "fly.dev",
-  "railway.app",
-  "azurewebsites.net",
-  "herokuapp.com",
-  "firebaseapp.com",
-  "web.app"
-];
-
-function isSharedHostSubdomain(hostname) {
-  const host = (hostname || "").toLowerCase().trim();
-  return SHARED_HOST_SUFFIXES.some(
-    suffix => host.endsWith(`.${suffix}`) || host === suffix
-  );
-}
-
-function detectPlatform(headers, exposedFiles) {
-  const h = headers || {};
-  const server = (h.server || "").toLowerCase();
-  const poweredBy = (h.xPoweredBy || "").toLowerCase();
-
-  if (server.includes("vercel") || h.xVercelId) return "vercel";
-  if (poweredBy.includes("wordpress") || (exposedFiles || []).some(f => f.path.includes("wp-"))) return "wordpress";
-  if (server.includes("nginx")) return "nginx";
-  if (server.includes("apache")) return "apache";
-  if (server.includes("cloudflare")) return "cloudflare";
-  return "unknown";
-}
-
-// REBALANCED SCORING: 
-// Modern browsers handle Referrer & Permissions natively. 
-// Missing headers shouldn't drop a safe site below a C.
-const HEADER_SEVERITY = {
-  "content-security-policy": 15,
-  "strict-transport-security": 10,
-  "x-frame-options": 5,
-  "x-content-type-options": 5,
-  "referrer-policy": 0, 
-  "permissions-policy": 0,
-};
-
-function calculateScore(raw, hostname = "") {
-  let score = 100;
-  const deductions = [];
-  const sharedHost = isSharedHostSubdomain(hostname);
-
-  // Critical: TLS
-  if (!raw.tls?.valid) {
-    score -= 40;
-    deductions.push({ reason: "SSL/TLS certificate invalid or unreachable", points: 40 });
-  } else if (raw.tls.daysUntilExpiry !== null && raw.tls.daysUntilExpiry < 14) {
-    score -= 10;
-    deductions.push({ reason: "SSL certificate expiring very soon", points: 10 });
-  }
-
-  // Best Practice: Headers
-  (raw.headers?.missing || []).forEach((h) => {
-    const pts = HEADER_SEVERITY[h];
-    if (pts > 0) {
-      score -= pts;
-      deductions.push({ reason: `Missing ${h} header`, points: pts });
-    }
-  });
-
-  // Critical: Exposed files
-  const exposedCount = (raw.exposedFiles || []).length;
-  if (exposedCount > 0) {
-    const pts = Math.min(exposedCount * 20, 50);
-    score -= pts;
-    deductions.push({ reason: `${exposedCount} sensitive file(s) publicly exposed`, points: pts });
-  }
-
-  // Best Practice: Email spoofing
-  if (!sharedHost) {
-    if (!raw.emailAuth?.spf) {
-      score -= 5;
-      deductions.push({ reason: "No SPF record", points: 5 });
-    }
-    if (!raw.emailAuth?.dmarc) {
-      score -= 5;
-      deductions.push({ reason: "No DMARC record", points: 5 });
-    }
-  }
-
-  // Best Practice: Cookies
-  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
-  if (insecureCookies.length > 0) {
-    const pts = Math.min(insecureCookies.length * 4, 12);
-    score -= pts;
-    deductions.push({ reason: `${insecureCookies.length} cookie(s) missing Secure/HttpOnly flags`, points: pts });
-  }
-
-  // High Risk: CORS
-  if (raw.cors?.dangerousCombo) {
-    score -= 30;
-    deductions.push({ reason: "Dangerous CORS config: reflects any origin + allows credentials", points: 30 });
-  } else if (raw.cors?.wildcardOpen) {
-    score -= 5;
-    deductions.push({ reason: "CORS wide open (Access-Control-Allow-Origin: *)", points: 5 });
-  }
-
-  // Medium Risk: Mixed content
-  if (raw.mixedContent?.checked && raw.mixedContent.insecureResources.length > 0) {
-    const pts = Math.min(raw.mixedContent.insecureResources.length * 5, 20);
-    score -= pts;
-    deductions.push({ reason: `${raw.mixedContent.insecureResources.length} insecure (HTTP) resource(s) on HTTPS page`, points: pts });
-  }
-
-  // Critical: Malware
-  if (raw.malware?.checked && raw.malware.flagged) {
-    score -= 60;
-    deductions.push({ reason: `Flagged by Google Safe Browsing: ${(raw.malware.threatTypes || []).join(", ")}`, points: 60 });
-  }
-
-  return { score: Math.max(0, Math.round(score)), deductions, sharedHost };
-}
-
-const HEADER_EXPLANATIONS = {
-  "content-security-policy": {
-    what: "Your site does not declare which script, style, and media sources the browser is permitted to execute.",
-    why: "Without this header, malicious code injected via cross-site scripting (XSS) executes without restriction.",
-    fix: {
-      vercel: "Add a Content-Security-Policy key under headers() in your next.config.js.",
-      wordpress: "Configure CSP via a security plugin (e.g., Wordfence or Really Simple SSL).",
-      unknown: "Define Content-Security-Policy in your web server config starting with default-src 'self'.",
-    },
-  },
-  "strict-transport-security": {
-    what: "Your site does not instruct browsers to exclusively use HTTPS for future connections.",
-    why: "Users can be downgraded to plain unencrypted HTTP during man-in-the-middle network attacks.",
-    fix: {
-      vercel: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains in next.config.js.",
-      wordpress: "Enable HSTS in your SSL configuration plugin.",
-      unknown: "Add Strict-Transport-Security: max-age=63072000; includeSubDomains at your edge or web server.",
-    },
-  },
-  "x-frame-options": {
-    what: "Your site does not declare whether other domains can embed it inside an iframe.",
-    why: "Attackers can frame your site transparently and trick users into clicking buttons (Clickjacking).",
-    fix: {
-      vercel: "Add X-Frame-Options: SAMEORIGIN or DENY to your next.config.js headers.",
-      wordpress: "Enable frame protection in your site headers or security plugin settings.",
-      unknown: "Add X-Frame-Options: SAMEORIGIN in your server block.",
-    },
-  },
-  "x-content-type-options": {
-    what: "Browsers are permitted to guess MIME types rather than adhering strictly to Content-Type headers.",
-    why: "An uploaded benign file like an image could be interpreted and executed by the browser as JavaScript.",
-    fix: {
-      vercel: "Add X-Content-Type-Options: nosniff in next.config.js.",
-      wordpress: "Toggle nosniff headers in your server or security plugin.",
-      unknown: "Add X-Content-Type-Options: nosniff to your response headers.",
-    },
-  },
-};
-
-function scoreToGrade(score) {
-  if (score >= 90) return "A";
-  if (score >= 75) return "B";
-  if (score >= 60) return "C";
-  if (score >= 40) return "D";
-  return "F";
-}
-
-function generateReport(raw, hostname) {
-  const { score, deductions, sharedHost } = calculateScore(raw, hostname);
-  const platform = detectPlatform(raw.headers, raw.exposedFiles);
-  const grade = scoreToGrade(score);
-
-  const lines = [];
-  lines.push(`# Security Scan Report for ${hostname}`);
-  lines.push("");
-  lines.push(`## Overall Grade: ${grade} (${score}/100)`);
-  lines.push("");
-
-  if (score >= 90) {
-    lines.push("Strong configuration. Your site has solid core security and defense-in-depth measures in place.");
-  } else if (score >= 75) {
-    lines.push("Good foundation. Essential defenses are present, with straightforward hardening steps remaining.");
-  } else if (score >= 60) {
-    lines.push("Moderate posture. Core connectivity is working, but key browser-level security policies are missing.");
-  } else {
-    lines.push("Vulnerable baseline. Critical security configurations or infrastructure protections are absent.");
-  }
-  lines.push("");
-
-  const sortedDeductions = [...deductions].sort((a, b) => b.points - a.points);
-  const insecureCookies = (raw.cookies?.cookies || []).filter((c) => !c.secure || !c.httpOnly);
-
-  if (sortedDeductions.length === 0) {
-    lines.push("## Findings");
-    lines.push("All core passive checks passed. Continue monitoring SSL certificate expiration dates.");
-  } else {
-    lines.push("## Issues Found (Ranked by Severity)");
-    lines.push("");
-
-    let num = 1;
-
-    if (raw.malware?.checked && raw.malware.flagged) {
-      lines.push(`### ${num}. 🚨 Flagged by Google Safe Browsing`);
-      lines.push(`**Finding:** Identified under threats: ${(raw.malware.threatTypes || []).join(", ").toLowerCase()}.`);
-      lines.push(`**Remediation:** Inspect application code for unauthorized modifications and request a malware review in Google Search Console.`);
-      lines.push("");
-      num++;
-    }
-
-    if (!raw.tls?.valid) {
-      lines.push(`### ${num}. Invalid SSL Certificate`);
-      lines.push(`**Finding:** ${raw.tls?.error || "Certificate validation failed."}`);
-      lines.push(`**Remediation:** Renew or reissue your certificate via your hosting dashboard or Let's Encrypt.`);
-      lines.push("");
-      num++;
-    }
-
-    if ((raw.exposedFiles || []).length > 0) {
-      lines.push(`### ${num}. Sensitive Files Publicly Accessible`);
-      lines.push(`**Finding:** Reachable paths: ${raw.exposedFiles.map(f => f.path).join(", ")}`);
-      lines.push(`**Remediation:** Restrict web server access to these paths or remove them from the deployment output immediately.`);
-      lines.push("");
-      num++;
-    }
-
-    const missingHeaders = (raw.headers?.missing || []).filter(h => HEADER_SEVERITY[h] > 0).sort(
-      (a, b) => HEADER_SEVERITY[b] - HEADER_SEVERITY[a]
-    );
-    
-    missingHeaders.forEach((h) => {
-      const info = HEADER_EXPLANATIONS[h];
-      if (!info) return;
-      lines.push(`### ${num}. Missing Header: ${h}`);
-      lines.push(`**Risk:** ${info.why}`);
-      lines.push(`**Remediation:** ${info.fix[platform] || info.fix.unknown}`);
-      lines.push("");
-      num++;
-    });
-
-    const fixCode = generateFixCode(platform, missingHeaders);
-    if (fixCode) {
-      lines.push(`### Recommended Configuration: ${fixCode.label}`);
-      lines.push(`_${fixCode.disclaimer}_`);
-      lines.push("");
-      lines.push("```");
-      lines.push(fixCode.code);
-      lines.push("```");
-      lines.push("");
-    }
-
-    if (!sharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) {
-      lines.push(`### ${num}. Missing Email Spoofing Records`);
-      lines.push(`**Risk:** Attackers can send spoofed emails claiming to originate from your domain.`);
-      lines.push(`**Remediation:** Add valid SPF and DMARC TXT records in your DNS provider control panel.`);
-      lines.push("");
-      num++;
-    }
-
-    if (insecureCookies.length > 0) {
-      lines.push(`### ${num}. Insecure Cookie Attributes`);
-      lines.push(`**Finding:** Cookies lacking Secure or HttpOnly: ${insecureCookies.map(c => c.name).join(", ")}.`);
-      lines.push(`**Remediation:** Append Secure; HttpOnly; SameSite=Lax flags when setting cookies.`);
-      lines.push("");
-      num++;
-    }
-  }
-
-  const working = [];
-  if (raw.tls?.valid) working.push("Valid SSL/TLS certificate configured");
-  if ((raw.exposedFiles || []).length === 0) working.push("No exposed environment or source repository files found");
-  (raw.headers?.present || []).forEach((h) => working.push(`Security header present: ${h}`));
-  if (sharedHost) {
-    working.push("Email SPF/DMARC: Exempted (Shared hosting subdomain)");
-  } else {
-    if (raw.emailAuth?.spf) working.push("SPF record verified in DNS");
-    if (raw.emailAuth?.dmarc) working.push("DMARC record verified in DNS");
-  }
-
-  if (working.length > 0) {
-    lines.push("## Passing Checks");
-    working.forEach((w) => lines.push(`* ${w}`));
-    lines.push("");
-  }
-
-  return lines.join("\n");
-}
-
-export { generateReport, calculateScore, detectPlatform, scoreToGrade, isSharedHostSubdomain };
 </file>
 
 <file path="public/report.html">
@@ -1524,6 +1796,8 @@ export { generateReport, calculateScore, detectPlatform, scoreToGrade, isSharedH
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Security Audit Report</title>
   <link rel="stylesheet" href="/style.css" />
+  <!-- Markdown Parser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
@@ -1535,49 +1809,155 @@ export { generateReport, calculateScore, detectPlatform, scoreToGrade, isSharedH
     </nav>
     <main>
       <section class="scan-card">
-        <div class="tab-group"><button id="tabQuick" class="tab-btn" type="button">Quick Check</button><button id="tabFull" class="tab-btn active" type="button">Deep Technical Scan</button><button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST Audit</button></div>
-        <form id="scanForm"><div class="input-group"><input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required /><button id="submitScanBtn" type="submit" class="scan-btn">Scan Target</button></div><div class="scan-options"><label class="checkbox-label"><input type="checkbox" id="ownershipConfirmed" checked required /><span>I confirm authorization to scan this domain</span></label></div></form>
+        <div class="tab-group">
+          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
+          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
+        </div>
+        <form id="scanForm">
+          <div class="input-group">
+            <input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required />
+            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
+          </div>
+          <div class="scan-options">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ownershipConfirmed" checked required />
+              <span>I confirm authorization to scan this domain</span>
+            </label>
+          </div>
+        </form>
       </section>
-      <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
-      <section id="results" class="results-area"><div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);"><p style="font-size: 0.95rem;">Retrieving security audit findings...</p></div></section>
+      <section id="results" class="results-area">
+        <div class="card" style="text-align: center; padding: 48px 24px; color: var(--text-secondary);">
+          <p style="font-size: 0.95rem;">Retrieving security audit findings...</p>
+        </div>
+      </section>
     </main>
   </div>
+  
   <script src="/render.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
       let scanMode = "full"; 
       const pathParts = window.location.pathname.split("/report/");
       const targetDomain = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : "";
-      const input = document.getElementById("targetUrl"); const resultsEl = document.getElementById("results"); const submitBtn = document.getElementById("submitScanBtn");
-      const tabQuick = document.getElementById("tabQuick"); const tabFull = document.getElementById("tabFull"); const tabActive = document.getElementById("tabActive");
-      function updateTabs(activeBtn) { [tabQuick, tabFull, tabActive].forEach(b => b.classList.remove('active')); activeBtn.classList.add('active'); if (scanMode === 'active') { submitBtn.textContent = 'Launch Active Exploits'; submitBtn.style.background = 'var(--brand-emerald)'; submitBtn.style.color = '#fff'; } else { submitBtn.textContent = scanMode === 'full' ? 'Scan Target' : 'Quick Check'; submitBtn.style.background = '#fff'; submitBtn.style.color = '#090d16'; } }
-      tabQuick.addEventListener("click", () => { scanMode = "quick"; updateTabs(tabQuick); }); tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); }); tabActive.addEventListener("click", () => { scanMode = "active"; updateTabs(tabActive); });
+      const input = document.getElementById("targetUrl"); 
+      const resultsEl = document.getElementById("results"); 
+      const submitBtn = document.getElementById("submitScanBtn");
+      const tabFull = document.getElementById("tabFull"); 
+      const tabActive = document.getElementById("tabActive");
+      
+      function updateTabs(activeBtn) { 
+        [tabFull, tabActive].forEach(b => b.classList.remove('active')); 
+        activeBtn.classList.add('active'); 
+        if (scanMode === 'active') { 
+          submitBtn.textContent = 'Launch Active Exploits'; 
+          submitBtn.style.background = 'var(--brand-emerald)'; 
+          submitBtn.style.color = '#fff'; 
+        } else { 
+          submitBtn.textContent = 'Run Standard Audit'; 
+          submitBtn.style.background = '#fff'; 
+          submitBtn.style.color = '#090d16'; 
+        } 
+      }
+      
+      tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); }); 
+      tabActive.addEventListener("click", () => { scanMode = "active"; updateTabs(tabActive); });
 
       if (targetDomain) {
         input.value = targetDomain; document.title = `SiteScanner Audit — ${targetDomain}`;
-        try { const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`); if (!res.ok) throw new Error("No previous scan found."); const reportData = await res.json(); if (window.authReady) await window.authReady; renderResults(reportData); } catch (err) { resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Not Loaded</div>`; }
+        try { 
+          const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`); 
+          if (!res.ok) throw new Error("No previous scan found."); 
+          const reportData = await res.json(); 
+          if (window.authReady) await window.authReady; 
+          renderResults(reportData); 
+        } catch (err) { 
+          resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Not Loaded</div>`; 
+        }
       }
+      
       document.getElementById("scanForm").addEventListener("submit", async (e) => {
-        e.preventDefault(); const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, ""); if (!url) return;
+        e.preventDefault(); 
+        const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, ""); 
+        if (!url) return;
+
         if (scanMode === 'active') {
           if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
           return window.showDnsVerificationModal(url, async () => {
-            submitBtn.disabled = true; submitBtn.textContent = 'Injecting Payloads...';
-            resultsEl.innerHTML = '<div class="card" style="text-align: center; padding: 48px;"><strong style="color:var(--brand-emerald); display: block;">Verification Passed. Launching Active Vulnerability Exploits...</strong></div>';
-            try { const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); if (data.error) throw new Error(data.error); history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); renderResults(data); } catch (err) { resultsEl.innerHTML = `<div class="card">${err.message}</div>`; } finally { submitBtn.disabled = false; submitBtn.textContent = 'Launch Active Exploits'; }
+            submitBtn.disabled = true; 
+            
+            // --- NEW: Trigger loading animation for DAST ---
+            if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
+
+            try { 
+              const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); 
+              clearInterval(window.activeLoadingInterval);
+              if (data.error) throw new Error(data.error); 
+              history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
+              renderResults(data); 
+            } catch (err) { 
+              clearInterval(window.activeLoadingInterval);
+              resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
+            } finally { 
+              submitBtn.disabled = false; 
+              submitBtn.textContent = 'Launch Active Exploits'; 
+            }
           });
         }
-        submitBtn.disabled = true;
-        if (scanMode === "quick") {
-          try { const data = await (await fetch("/api/quickcheck", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true }) })).json(); if (data.error) throw new Error(data.error); document.getElementById("quickCheckResult").style.display = 'block'; } catch {} finally { submitBtn.disabled = false; }
-        } else {
-          try { const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); if (data.error) throw new Error(data.error); history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); renderResults(data); } catch (err) { resultsEl.innerHTML = `<div class="card">${err.message}</div>`; } finally { submitBtn.disabled = false; }
+        
+        submitBtn.disabled = true; 
+        
+        // --- NEW: Trigger loading animation for Standard Audit ---
+        if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
+
+        try { 
+          const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); 
+          clearInterval(window.activeLoadingInterval);
+          if (data.error) throw new Error(data.error); 
+          history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
+          renderResults(data); 
+        } catch (err) { 
+          clearInterval(window.activeLoadingInterval);
+          resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
+        } finally { 
+          submitBtn.disabled = false; 
+          submitBtn.textContent = 'Run Standard Audit';
         }
       });
     });
   </script>
 </body>
 </html>
+</file>
+
+<file path="package.json">
+{
+  "name": "sitescanner",
+  "version": "1.0.0",
+  "description": "Free passive security health checker for small business websites",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.5.1",
+    "google-auth-library": "^11.0.2",
+    "ipaddr.js": "^2.5.0",
+    "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.6.0",
+    "node-fetch": "^3.3.2",
+    "puppeteer": "^25.10.0",
+    "razorpay": "^2.9.8",
+    "resend": "^6.26.0",
+    "stripe": "^22.6.1"
+  }
+}
 </file>
 
 <file path="history-store.js">
@@ -1596,6 +1976,7 @@ export async function initDb() {
   await db.execute(`CREATE TABLE IF NOT EXISTS public_feed (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   try { await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT, avatar_url TEXT, is_pro INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
@@ -1604,15 +1985,17 @@ initDb().catch(console.error);
 
 export async function upsertUser({ id, email, name, avatarUrl }) {
   await db.execute({ sql: `INSERT INTO users (id, email, name, avatar_url) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, avatar_url = excluded.avatar_url`, args: [id, email, name, avatarUrl] });
-  return (await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro FROM users WHERE id = ?`, args: [id] })).rows[0];
+  return (await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [id] })).rows[0];
 }
+
 export async function getUserProfile(userId) {
-  const userRes = await db.execute({ sql: `SELECT id, email, name, avatar_url, is_pro FROM users WHERE id = ?`, args: [userId] });
+  const userRes = await db.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [userId] });
   if (!userRes.rows.length) return null;
   const user = userRes.rows[0];
   const entitlementsRes = await db.execute({ sql: `SELECT hostname, unlocked_at FROM entitlements WHERE user_id = ? ORDER BY unlocked_at DESC`, args: [userId] });
-  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
+  return { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url, is_pro: Boolean(user.is_pro), pro_started_at: user.pro_started_at || null, unlockedDomains: entitlementsRes.rows.map((r) => r.hostname) };
 }
+
 export async function grantDomainEntitlement(userId, hostname, orderId) { await db.execute({ sql: `INSERT INTO entitlements (user_id, hostname, order_id) VALUES (?, ?, ?) ON CONFLICT(user_id, hostname) DO NOTHING`, args: [userId, hostname.toLowerCase(), orderId] }); }
 export async function checkDomainEntitlement(userId, hostname) {
   if (!userId) return false;
@@ -1647,35 +2030,11 @@ export async function getOrGenerateVerificationToken(userId, hostname) {
   return { token: newToken, isVerified: false };
 }
 export async function markDomainVerified(userId, hostname) { await db.execute({ sql: `UPDATE domain_verifications SET is_verified = 1 WHERE user_id = ? AND hostname = ?`, args: [userId, hostname.toLowerCase()] }); }
-</file>
-
-<file path="package.json">
-{
-  "name": "sitescanner",
-  "version": "1.0.0",
-  "description": "Free passive security health checker for small business websites",
-  "type": "module",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
-  "dependencies": {
-    "@libsql/client": "^0.18.0",
-    "cookie-parser": "^1.4.7",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.5.1",
-    "google-auth-library": "^11.0.2",
-    "ipaddr.js": "^2.5.0",
-    "jsonwebtoken": "^9.0.3",
-    "node-cron": "^4.6.0",
-    "node-fetch": "^3.3.2",
-    "puppeteer": "^25.10.0",
-    "razorpay": "^2.9.8",
-    "resend": "^6.26.0",
-    "stripe": "^22.6.1"
-  }
+export async function toggleMonitorStatus(userId, monitorId, isActive) {
+  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE id = ? AND user_id = ?`, args: [isActive ? 1 : 0, monitorId, userId] });
+}
+export async function toggleMonitorByHostname(userId, hostname, isActive) {
+  await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, userId, hostname.toLowerCase()] });
 }
 </file>
 
@@ -1687,6 +2046,8 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Passive Security Architecture Audit</title>
   <link rel="stylesheet" href="/style.css" />
+  <!-- Markdown Parser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -1716,9 +2077,8 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
       <!-- Unified Scanning Dock -->
       <section class="scan-card">
         <div class="tab-group">
-          <button id="tabQuick" class="tab-btn active" type="button">Quick Check</button>
-          <button id="tabFull" class="tab-btn" type="button">Deep Technical Scan</button>
-          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST Audit</button>
+          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
+          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
         </div>
 
         <form id="scanForm">
@@ -1732,7 +2092,7 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
               autocomplete="off" 
               required 
             />
-            <button id="submitScanBtn" type="submit" class="scan-btn">Scan Target</button>
+            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
           </div>
 
           <div class="scan-options">
@@ -1740,8 +2100,8 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
               <input type="checkbox" id="ownershipConfirmed" checked required />
               <span>I confirm authorization to scan this domain</span>
             </label>
-            <label class="checkbox-label" id="publicFeedOption" style="display: none;">
-              <input type="checkbox" id="listPublicly">
+            <label class="checkbox-label" id="publicFeedOption" style="display: inline-flex;">
+              <input type="checkbox" id="listPublicly" checked>
               <span>List result in public recent scans</span>
             </label>
           </div>
@@ -1755,9 +2115,6 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
           <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
         </div>
       </div>
-
-      <!-- Quick Check Result Dropdown -->
-      <div id="quickCheckResult" style="display: none; margin-bottom: 24px;"></div>
 
       <!-- Progressive / Standard Output Section -->
       <section id="results" class="results-area"></section>
@@ -1892,29 +2249,108 @@ function renderResults(data, targetId = "results") {
   const circumference = 2 * Math.PI * 40; const offset = circumference - (score / 100) * circumference;
 
   let critical = 0, warning = 0, passed = 0;
+  
   if (!raw.tls?.valid) critical++; else passed++;
-  (raw.headers?.missing || []).forEach(() => critical++); (raw.headers?.present || []).forEach(() => passed++);
+  (raw.headers?.missing || []).forEach(() => critical++); 
+  (raw.headers?.present || []).forEach(() => passed++);
   if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
-  if (!raw.emailAuth?.isSharedHost) { if (!raw.emailAuth?.spf) warning++; else passed++; if (!raw.emailAuth?.dmarc) warning++; else passed++; } else passed++;
+  
+  if (!raw.emailAuth?.isSharedHost) { 
+    if (!raw.emailAuth?.spf) warning++; else passed++; 
+    if (!raw.emailAuth?.dmarc) warning++; else passed++; 
+  } else passed++; 
+  
   if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
+  
+  const badCookies = (raw.cookies?.cookies || []).filter(c => !c.secure || !c.httpOnly);
+  if (badCookies.length > 0) badCookies.forEach(() => warning++); 
+  else if (raw.cookies?.hasCookies) passed++;
 
-  let html = `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div></div></div><div class="summary-badges"><span class="summary-pill pill-critical">${critical} Critical</span><span class="summary-pill pill-warning">${warning} Warnings</span><span class="summary-pill pill-passed">${passed} Passed</span></div></div>`;
+  if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
 
-  if (raw.activeDastStatus) html += `<div class="card" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05);"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
+  let quickStatusHtml = '';
+  const isMalware = raw.malware?.checked && raw.malware?.flagged;
+  
+  if (isMalware || score < 40 || !raw.tls?.valid) {
+    quickStatusHtml = `<div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">🚨</span><div><strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong><span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span></div></div>`;
+  } else if (score < 75) {
+    quickStatusHtml = `<div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">⚠️</span><div><strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong><span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span></div></div>`;
+  } else {
+    quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">✅</span><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
+  }
 
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
+  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div><div style="margin-top: 6px; font-size: 0.95rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.15rem; margin-left: 4px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.8;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
+
+  if (raw.activeDastStatus) {
+    html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
+    if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
+      const alerts = raw.activeDastReport.site[0].alerts || [];
+      if (alerts.length === 0) {
+        html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
+      } else {
+        html += `<h4 style="margin: 32px 0 16px; font-size: 1.1rem; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Findings</h4>`;
+        alerts.forEach(alert => {
+          let riskColor = "var(--text-secondary)";
+          let riskBg = "var(--surface-subtle)";
+          let riskText = "INFO";
+          let sev = "passed";
+          if (alert.riskcode === "3") { riskColor = "var(--brand-rose)"; riskBg = "rgba(244, 63, 94, 0.15)"; riskText = "HIGH"; sev = "critical"; }
+          else if (alert.riskcode === "2") { riskColor = "var(--brand-amber)"; riskBg = "rgba(245, 158, 11, 0.15)"; riskText = "MEDIUM"; sev = "warning"; }
+          else if (alert.riskcode === "1") { riskColor = "var(--brand-cyan)"; riskBg = "rgba(6, 182, 212, 0.15)"; riskText = "LOW"; sev = "warning"; }
+
+          const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
+          const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
+
+          html += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 20px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;"><strong style="color: #fff; font-size: 1rem;">${alert.name}</strong><span style="font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">${riskText}</span></div><div style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">${cleanDesc}</div><div style="background: rgba(0,0,0,0.25); padding: 12px 16px; border-radius: 8px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.05);"><strong style="color: var(--text-tertiary); display: block; margin-bottom: 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Remediation Guidance</strong><span style="color: #cbd5e1; line-height: 1.5;">${cleanSol}</span></div></div>`;
+        });
+      }
+    }
+  }
+
+  const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
+  html += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
   html += `</div>`;
 
-  html += `<div class="card"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
+  const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
+  html += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
   (raw.headers?.missing || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
   (raw.headers?.present || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
   html += `</div>`;
 
-  html += `<div class="card" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (isGuest && (raw.exposedFiles || []).length > 0) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view exposed paths</button></div>`;
+  const hasExposed = (raw.exposedFiles || []).length > 0;
+  html += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
+  if (isGuest && hasExposed) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view paths</button></div>`;
   else if (!raw.exposedFiles || raw.exposedFiles.length === 0) html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   else raw.exposedFiles.forEach(f => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
+  html += `</div>`;
+
+  const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
+  html += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📧 Email Spoofing Protection</strong>`;
+  if (raw.emailAuth?.isSharedHost) {
+      html += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
+  } else {
+      html += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
+      html += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
+  }
+  html += `</div>`;
+
+  if (raw.cookies?.hasCookies) {
+      const cookieSev = badCookies.length > 0 ? "warning" : "passed";
+      html += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🍪 Session & Cookie Security</strong>`;
+      if (badCookies.length === 0) {
+           html += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
+      } else {
+           badCookies.forEach(c => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
+      }
+      html += `</div>`;
+  }
+
+  const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
+  html += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔄 Cross-Origin Resource Sharing (CORS)</strong>`;
+  if (raw.cors?.dangerousCombo) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
+  else if (raw.cors?.wildcardOpen) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
+  else html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
   html += `</div>`;
 
   if (isGuest) html += `<div class="card" style="text-align: center; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(180deg, rgba(30,27,75,0.3), rgba(15,23,42,0.8)); padding: 32px; margin-top: 24px;"><h3 style="color: #fff; margin-bottom: 8px;">Unlock Advanced Capabilities</h3><button onclick="showSignInModal()" class="cta-button" style="background: var(--brand-purple); border: none; max-width: 250px; margin: 0 auto;">Sign In with Google</button></div>`;
@@ -1922,33 +2358,206 @@ function renderResults(data, targetId = "results") {
   
   resultsEl.innerHTML = html;
 
+  let activeFilter = null;
+  const filterCards = (severity) => {
+    const cards = document.querySelectorAll(".result-card");
+    if (activeFilter === severity) {
+      activeFilter = null;
+      cards.forEach(c => c.style.display = "");
+      return;
+    }
+    activeFilter = severity;
+    cards.forEach(c => {
+      c.style.display = c.getAttribute("data-severity") === severity ? "" : "none";
+    });
+  };
+
+  document.getElementById("filter-critical")?.addEventListener("click", () => filterCards("critical"));
+  document.getElementById("filter-warning")?.addEventListener("click", () => filterCards("warning"));
+  document.getElementById("filter-passed")?.addEventListener("click", () => filterCards("passed"));
+
   if (!isGuest) {
+    let isMonitoring = false;
+
+    if (currentUser.is_pro) {
+      fetch("/api/monitors")
+        .then(res => res.json())
+        .then(monitors => {
+          if (Array.isArray(monitors) && monitors.some(m => m.hostname.toLowerCase() === hostname.toLowerCase() && m.is_active === 1)) {
+            isMonitoring = true;
+            const btn = document.getElementById("monitorBtn");
+            if (btn) {
+              btn.textContent = "✓ Alerts Active";
+              btn.style.borderColor = "var(--brand-emerald)";
+              btn.style.color = "var(--brand-emerald)";
+            }
+          }
+        }).catch(() => {}); 
+    }
+
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", () => window.location.reload());
       const btn = document.getElementById("exportPdfBtn"); btn.disabled = true; btn.textContent = "Generating PDF...";
       try { const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`)).blob(); const url = window.URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SiteScanner_${hostname}.pdf`; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url); } catch { alert("PDF Export Error"); } finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
     });
+    
+    // --- UPDATED: SPLIT RULE-BASED AND AI GENERATION LOGIC ---
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
-      const container = document.getElementById("reportContainer"); container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Compiling security intelligence blueprint...</div>';
+      const container = document.getElementById("reportContainer"); 
+      container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Generating Standard Security Report...</div>';
+      
       try {
-        const resData = await (await fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw, hostname }) })).json();
-        let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${resData.ruleBasedReport}</div></div>`;
-        if (resData.aiReport) reportsHtml += `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${resData.aiReport}</div></div>`;
-        else if (resData.aiError) reportsHtml += `<div class="card" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+        const resData = await (await fetch("/api/explain", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          // Fetch only the standard report to save tokens
+          body: JSON.stringify({ raw, hostname, mode: 'standard' }) 
+        })).json();
+        
+        const parseMD = (text) => window.marked ? marked.parse(text) : text;
+
+        let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
+        
+        // Inject the isolated AI execution trigger
+        reportsHtml += `
+          <div id="aiReportContainer">
+            <div class="card" style="text-align: center; border: 1px dashed rgba(139,92,246,0.4); padding: 32px; background: rgba(139,92,246,0.05);">
+              <strong style="color: #c4b5fd; font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ Deep AI Analysis Available</strong>
+              <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">Run an Advanced AppSec review of this scan data using Google Gemini.</p>
+              <button id="generateAiBtn" class="cta-button" style="max-width: 250px; margin: 0 auto; background: var(--brand-purple); border: none;">Generate AI Blueprint</button>
+            </div>
+          </div>
+        `;
+
         container.innerHTML = reportsHtml;
+        
+        // Bind the new AI extraction button
+        document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
+          const aiContainer = document.getElementById("aiReportContainer");
+          aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--brand-purple);">Compiling AI security intelligence blueprint...</div>';
+
+          try {
+            const aiRes = await (await fetch("/api/explain", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ raw, hostname, mode: 'ai' })
+            })).json();
+
+            let aiHtml = '';
+            if (aiRes.aiReport) {
+              aiHtml = `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(aiRes.aiReport)}</div></div>`;
+            } else if (aiRes.aiError) {
+              if (currentUser && currentUser.is_pro) {
+                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
+              } else {
+                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+              }
+            } else {
+               aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">Pro upgrade required or GEMINI_API_KEY missing.</p></div>`;
+            }
+            aiContainer.innerHTML = aiHtml;
+          } catch (err) {
+             aiContainer.innerHTML = `<div class="card ai-error">AI Report error: ${err.message}</div>`;
+          }
+        });
+
       } catch (err) { container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; }
     });
+
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
-      const btn = document.getElementById("monitorBtn"); btn.disabled = true; btn.textContent = "Configuring...";
-      try {
-        await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
-        btn.textContent = "✓ Alerts Active"; btn.style.borderColor = "var(--brand-emerald)";
-      } catch (err) { btn.disabled = false; btn.textContent = "🔔 Enable Alerts"; }
+      const btn = document.getElementById("monitorBtn"); 
+      btn.disabled = true; 
+      
+      if (isMonitoring) {
+        btn.textContent = "Disabling...";
+        try {
+          await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
+          isMonitoring = false;
+          btn.textContent = "🔔 Enable Alerts"; 
+          btn.style.borderColor = "rgba(16,185,129,0.3)";
+          btn.style.color = "var(--brand-emerald)";
+        } catch (err) { btn.textContent = "Error"; }
+      } else {
+        btn.textContent = "Configuring...";
+        try {
+          await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          isMonitoring = true;
+          btn.textContent = "✓ Alerts Active"; 
+          btn.style.borderColor = "var(--brand-emerald)";
+          btn.style.color = "var(--brand-emerald)";
+        } catch (err) { btn.textContent = "Error"; }
+      }
+      btn.disabled = false;
     });
+  }
+
+  if (raw.activeDastStatus && raw.activeDastStatus.toLowerCase().includes("executing")) {
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/report/${encodeURIComponent(hostname)}`);
+        if (res.ok) {
+          const freshData = await res.json();
+          renderResults(freshData, targetId);
+        }
+      } catch (err) { console.error("[Polling Error]", err); }
+    }, 10000); 
   }
 }
 window.authReady = checkAuthSession();
+
+window.activeLoadingInterval = null;
+
+window.showLoadingState = function(container, mode) {
+  clearInterval(window.activeLoadingInterval);
+  const isActive = mode === 'active';
+  const color = isActive ? 'var(--brand-emerald)' : 'var(--brand-cyan)';
+  const title = isActive ? 'Injecting Payloads & Deep Scanning' : 'Running Standard Security Audit';
+
+  container.innerHTML = `
+    <div class="card" style="padding: 56px 32px; text-align: center; border-color: ${color}; background: linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 100%); position: relative; overflow: hidden; animation: slideUp 0.35s ease-out forwards;">
+      <div style="width: 64px; height: 64px; border-radius: 50%; background: ${isActive ? 'rgba(16,185,129,0.1)' : 'rgba(6,182,212,0.1)'}; color: ${color}; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 24px; animation: pulse 2s infinite; border: 1px solid ${isActive ? 'rgba(16,185,129,0.3)' : 'rgba(6,182,212,0.3)'}; box-shadow: 0 0 20px ${isActive ? 'rgba(16,185,129,0.2)' : 'rgba(6,182,212,0.2)'};">
+         ${isActive ? '⚔️' : '🛡️'}
+      </div>
+      <h3 style="color: #fff; font-size: 1.25rem; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.01em;">${title}</h3>
+      <div style="width: 100%; max-width: 360px; height: 4px; background: rgba(255,255,255,0.1); margin: 0 auto; border-radius: 8px; overflow: hidden;">
+        <div id="scanProgressBar" style="width: 0%; height: 100%; background: ${color}; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 10px ${color};"></div>
+      </div>
+      <div id="scanProgressText" style="margin-top: 16px; font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600; color: #fff;">0%</div>
+      <div id="scanProgressLog" style="margin-top: 12px; font-size: 0.8rem; color: var(--text-tertiary); min-height: 20px; transition: opacity 0.2s;">Establishing secure connection...</div>
+    </div>
+  `;
+
+  let progress = 0;
+  const logs = isActive 
+    ? ["Bypassing WAF...", "Injecting XSS payloads...", "Testing SQLi vectors...", "Analyzing CORS policies...", "Mapping attack surface...", "Compiling threat data..."]
+    : ["Checking SSL/TLS certificates...", "Verifying DNS & SPF records...", "Analyzing HTTP headers...", "Scanning for exposed .env files...", "Testing cookie security...", "Finalizing health report..."];
+  
+  let logIndex = 0;
+  const bar = document.getElementById("scanProgressBar");
+  const text = document.getElementById("scanProgressText");
+  const logEl = document.getElementById("scanProgressLog");
+
+  window.activeLoadingInterval = setInterval(() => {
+      const increment = (99 - progress) * 0.05; 
+      progress += Math.max(increment, 0.1);
+      if (progress >= 99.9) progress = 99.9;
+      
+      if (bar) bar.style.width = `${progress}%`;
+      if (text) text.textContent = `${Math.floor(progress)}%`;
+
+      if (Math.random() > 0.90 && logIndex < logs.length) {
+          if (logEl) {
+            logEl.style.opacity = 0;
+            setTimeout(() => {
+              logEl.textContent = logs[logIndex];
+              logEl.style.opacity = 1;
+              logIndex++;
+            }, 200);
+          }
+      }
+  }, 200);
+};
 </file>
 
 <file path="server.js">
@@ -1973,11 +2582,16 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
-app.set("trust proxy", 1); app.use(express.json()); app.use(cookieParser()); app.use(express.static("public"));
+app.set("trust proxy", 1); 
+app.use(express.json({ limit: "10mb" })); 
+app.use(cookieParser()); 
+app.use(express.static("public"));
+
+const aiCache = new Map();
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const JWT_SECRET = process.env.JWT_SECRET || "sitescanner_dev_secret_key_12345";
@@ -2018,6 +2632,26 @@ async function validatePublicHostname(hostname) {
   const blockedRanges = ["loopback", "private", "linkLocal", "broadcast", "carrierGradeNat", "uniqueLocal", "reserved"];
   for (const { address } of addresses) { try { if (blockedRanges.includes(ipaddr.parse(address).range())) throw new Error("Domain resolves to restricted IP."); } catch (err) { if (err.message.includes("restricted")) throw err; throw new Error("Invalid IP resolved."); } }
   return true;
+}
+
+async function dispatchGitHubScan(hostname) {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_REPO;
+  const pat = process.env.GITHUB_PAT;
+  const appBaseUrl = process.env.APP_BASE_URL;
+  const webhookSecret = process.env.SCAN_WEBHOOK_SECRET;
+
+  if (!owner || !repo || !pat || !appBaseUrl || !webhookSecret) { throw new Error("Missing GitHub Action worker configuration in environment variables."); }
+  const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
+  const signature = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
+
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${pat}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "SiteScanner-Backend" },
+    body: JSON.stringify({ event_type: "active_dast_scan", client_payload: { hostname, callback_url: callbackUrl, signature } }),
+  });
+
+  if (!response.ok) { const errText = await response.text(); throw new Error(`GitHub API Error: ${response.status} - ${errText}`); }
 }
 
 // ---------- Checkers ----------
@@ -2093,7 +2727,10 @@ app.post("/api/create-order", async (req, res) => {
 });
 app.post("/api/verify-payment", async (req, res) => {
   const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${req.body.razorpay_order_id}|${req.body.razorpay_payment_id}`).digest("hex");
-  if (hmac === req.body.razorpay_signature && req.user) { await db.execute({ sql: `UPDATE users SET is_pro = 1 WHERE id = ?`, args: [req.user.id] }); return res.json({ success: true }); }
+  if (hmac === req.body.razorpay_signature && req.user) { 
+    await db.execute({ sql: `UPDATE users SET is_pro = 1, pro_started_at = CURRENT_TIMESTAMP WHERE id = ?`, args: [req.user.id] }); 
+    return res.json({ success: true }); 
+  }
   res.status(400).json({ success: false, error: "Invalid payment signature." });
 });
 
@@ -2102,7 +2739,6 @@ app.post("/api/verification/generate", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro account required." });
   try { res.json({ success: true, ...await getOrGenerateVerificationToken(req.user.id, req.body.hostname) }); } catch (err) { res.status(500).json({ error: "Failed to generate token." }); }
 });
-
 app.post("/api/verification/check", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized." });
   const { hostname } = req.body;
@@ -2111,17 +2747,12 @@ app.post("/api/verification/check", async (req, res) => {
     if (dbData.isVerified) return res.json({ success: true, message: "Already verified." });
 
     let isVerified = false;
-
-    // 1. DNS Check
     const resolver = new Resolver(); resolver.setServers(["8.8.8.8", "1.1.1.1"]);
     try {
       const records = await resolver.resolveTxt(hostname);
       if (records.map(r => r.join("")).includes(dbData.token)) isVerified = true;
-    } catch (dnsErr) {
-      if (dnsErr.code !== "ENODATA" && dnsErr.code !== "ENOTFOUND") console.error("[DNS Error]", dnsErr.message);
-    }
+    } catch (dnsErr) {}
 
-    // 2. HTTP Check Fallback
     if (!isVerified) {
       try {
         const url = `https://${hostname}/.well-known/sitescanner-verification.txt`;
@@ -2133,44 +2764,94 @@ app.post("/api/verification/check", async (req, res) => {
     }
 
     if (isVerified) { await markDomainVerified(req.user.id, hostname); return res.json({ success: true, message: "Domain verified successfully!" }); }
-    res.status(400).json({ success: false, error: "Verification failed. Neither the DNS TXT record nor the HTTP verification file was found. Ensure your changes have been deployed or propagated." });
+    res.status(400).json({ success: false, error: "Verification failed. Check your DNS TXT record or HTTP verification file." });
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
+// ---------- Monitors & Toggles ----------
 app.post("/api/monitors", async (req, res) => { if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); res.json({ success: true }); });
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
+app.patch("/api/monitors/:id/toggle", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.patch("/api/monitors/toggle-domain", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
+// ---------- PDF Generation ----------
 app.get("/api/download-pdf/:hostname", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro plan required" });
   let browser = null;
   try {
     browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
-    const page = await browser.newPage(); await page.setViewport({ width: 1200, height: 1600 });
+    const page = await browser.newPage(); 
+    await page.setViewport({ width: 1200, height: 1600 });
+    
+    if (req.cookies && req.cookies.token) {
+      await page.setCookie({ name: 'token', value: req.cookies.token, domain: 'localhost' });
+    }
+
     await page.goto(`http://localhost:${process.env.PORT || 3000}/report/${req.params.hostname}`, { waitUntil: "networkidle0", timeout: 30000 });
-    await page.evaluate(() => { ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { const el = document.querySelector(s); if (el) el.style.display = 'none'; }); document.body.style.background = '#ffffff'; });
-    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true, margin: { top: "1cm", right: "1cm", bottom: "1cm", left: "1cm" } }); await browser.close();
-    res.contentType("application/pdf"); res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_${req.params.hostname}.pdf"`); res.send(Buffer.from(pdfBuffer));
-  } catch (err) { if (browser) await browser.close(); res.status(500).json({ error: err.message }); }
+    
+    await page.waitForSelector('#explainBtn', { timeout: 10000 }).catch(() => {});
+
+    await page.evaluate(async () => {
+      const explainBtn = document.getElementById('explainBtn');
+      if(explainBtn) {
+        explainBtn.click();
+        
+        // --- NEW: Wait for the standard report to populate and the AI button to appear ---
+        await new Promise(r => setTimeout(r, 1500));
+        
+        const aiBtn = document.getElementById('generateAiBtn');
+        if (aiBtn) {
+            aiBtn.click();
+            await new Promise(resolve => {
+              if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) return resolve();
+              
+              const observer = new MutationObserver(() => {
+                if (document.querySelector('.ai-card') || document.querySelector('.ai-error')) {
+                  observer.disconnect();
+                  resolve();
+                }
+              });
+              observer.observe(document.body, { childList: true, subtree: true });
+              setTimeout(resolve, 20000); 
+            });
+            await new Promise(r => setTimeout(r, 1000)); // Paint buffer
+        }
+      }
+      
+      ['.app-nav', '.scan-card', '.action-grid', '#monitorFeedback'].forEach(s => { 
+        const el = document.querySelector(s); 
+        if (el) el.style.display = 'none'; 
+      }); 
+      
+      document.body.style.background = '#090d16';
+    });
+
+    const pdfBuffer = await page.pdf({ 
+      format: "A4", 
+      printBackground: true, 
+      displayHeaderFooter: true,
+      headerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;"><span>SiteScanner // Automated Threat Intelligence</span><span style="color: #f43f5e; font-weight: 700; letter-spacing: 1px;">STRICTLY CONFIDENTIAL</span></div>`,
+      footerTemplate: `<div style="width: 100%; font-size: 9px; color: #94a3b8; padding: 0 1.2cm; display: flex; justify-content: space-between; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;"><span>Target Environment: ${req.params.hostname}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
+      margin: { top: "2.5cm", right: "1.2cm", bottom: "2.5cm", left: "1.2cm" } 
+    }); 
+    
+    await browser.close();
+    res.contentType("application/pdf"); 
+    res.setHeader("Content-Disposition", `attachment; filename="SiteScanner_Audit_${req.params.hostname}.pdf"`); 
+    res.send(Buffer.from(pdfBuffer));
+  } catch (err) { 
+    if (browser) await browser.close(); 
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // ---------- Scan Routes ----------
-app.post("/api/quickcheck", async (req, res) => {
-  if (!req.body.ownershipConfirmed) return res.status(400).json({ error: "You must confirm authorization." });
-  try {
-    const hostname = sanitizeTargetDomain(req.body.url); await validatePublicHostname(hostname); const targetHttpsUrl = `https://${hostname}`;
-    const [malware, tlsInfo, headersInfo, exposedFiles, httpsEnforcement] = await Promise.allSettled([ checkMalwareBlocklist(targetHttpsUrl), checkTLS(hostname), checkSecurityHeaders(targetHttpsUrl), checkExposedFiles(targetHttpsUrl), checkHttpsEnforcement(hostname) ]);
-    const malwareResult = malware.status === "fulfilled" ? malware.value : { checked: false }; const tlsResult = tlsInfo.status === "fulfilled" ? tlsInfo.value : { valid: false }; const missing = headersInfo.status === "fulfilled" ? (headersInfo.value.missing || []) : []; const exposed = exposedFiles.status === "fulfilled" ? exposedFiles.value : []; const enforcement = httpsEnforcement.status === "fulfilled" ? httpsEnforcement.value : { plainTextAllowed: false };
-    const criticalIssues = [], warningIssues = [];
-    if (enforcement.plainTextAllowed) criticalIssues.push("Plaintext HTTP is served without redirecting to HTTPS.");
-    if (malwareResult.checked && malwareResult.flagged) criticalIssues.push(`Flagged for ${(malwareResult.threatTypes || []).join(", ").toLowerCase()}`);
-    if (!tlsResult.valid) criticalIssues.push("No valid SSL certificate — connection is insecure"); else if (tlsResult.daysUntilExpiry !== null && tlsResult.daysUntilExpiry < 14) warningIssues.push(`SSL certificate expires in ${tlsResult.daysUntilExpiry} days`);
-    if (exposed.length > 0) criticalIssues.push(`${exposed.length} sensitive file(s) publicly exposed`);
-    if (missing.includes("content-security-policy")) warningIssues.push("Missing Content Security Policy (vulnerable to XSS)");
-    const status = criticalIssues.length > 0 ? "critical" : (warningIssues.length > 0 ? "warning" : "safe");
-    res.json({ hostname, status, safe: status !== "critical", reasons: [...criticalIssues, ...warningIssues], malwareChecked: malwareResult.checked });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.post("/api/scan", scanLimiter, async (req, res) => {
   if (!req.body.ownershipConfirmed) return res.status(400).json({ error: "You must confirm authorization." });
   try {
@@ -2178,6 +2859,9 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
     const raw = await runScanPipeline(hostname); const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
+    
+    aiCache.delete(hostname);
+    
     await saveLatestScan(hostname, scanResult); if (req.body.listPublicly) await addToPublicFeed(hostname, score, grade);
     res.json(scanResult);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2189,31 +2873,155 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     const hostname = sanitizeTargetDomain(req.body.url); await validatePublicHostname(hostname);
     const dbData = await getOrGenerateVerificationToken(req.user.id, hostname);
     if (!dbData.isVerified) return res.status(403).json({ error: "Domain ownership not verified." });
+
     const raw = await runScanPipeline(hostname);
-    raw.activeDastStatus = "DAST Engine executed. No severe runtime exploits detected."; 
+
+    try {
+      await dispatchGitHubScan(hostname);
+      raw.activeDastStatus = "Worker Runner dispatched. Deep assessment is executing in background...";
+    } catch (dispatchErr) {
+      console.error("[Dispatch Error]", dispatchErr.message);
+      raw.activeDastStatus = `Worker Dispatch Notice: ${dispatchErr.message}`;
+    }
+
     const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
     const { previous, history } = await recordScan(hostname, score, grade);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
-    await saveLatestScan(hostname, scanResult); res.json(scanResult);
+    
+    aiCache.delete(hostname);
+    
+    await saveLatestScan(hostname, scanResult); 
+    res.json(scanResult);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/webhooks/dast-callback", async (req, res) => {
+  const { hostname, results } = req.body;
+  const signature = req.headers["x-scan-signature"];
+  const appBaseUrl = process.env.APP_BASE_URL || "";
+  const webhookSecret = process.env.SCAN_WEBHOOK_SECRET || "";
+
+  const callbackUrl = `${appBaseUrl.replace(/\/+$/, "")}/api/webhooks/dast-callback`;
+  const expectedSig = crypto.createHmac("sha256", webhookSecret).update(`${hostname}:${callbackUrl}`).digest("hex");
+
+  if (signature !== expectedSig) { return res.status(401).json({ error: "Invalid signature verification." }); }
+  try {
+    const existing = await getLatestScan(hostname);
+    if (existing) {
+      existing.raw.activeDastStatus = "Assessment Complete. Results ingested.";
+      existing.raw.activeDastReport = results;
+      aiCache.delete(hostname);
+      await saveLatestScan(hostname, existing);
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Failed to persist scan output" }); }
 });
 
 app.post("/api/explain", async (req, res) => {
   if (!req.body.raw || !req.body.hostname) return res.status(400).json({ error: "Missing scan data." });
-  try {
+  
+  const mode = req.body.mode || 'all'; 
+
+  // --- NEW: Immediately return standard report to save tokens ---
+  if (mode === 'standard') {
     const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
-    if (!req.user || !req.user.is_pro) return res.json({ ruleBasedReport, aiReport: null, aiError: "Pro upgrade required." });
-    if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
-    let aiReport = null, aiError = null;
-    const prompt = `Senior AppSec Engineer mode. Analyze this scan for "${req.body.hostname}". Produce an ultra-concise, copy-pasteable remediation guide for ONLY the detected issues. Limit response to under 300 words. Scan findings: ${JSON.stringify({ missingHeaders: req.body.raw.headers?.missing || [], exposedFiles: req.body.raw.exposedFiles || [], emailAuth: req.body.raw.emailAuth || {} })}`;
-    for (const model of ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-pro"]) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, maxOutputTokens: 800 } }) });
-        if (response.ok) { aiReport = (await response.json()).candidates?.[0]?.content?.parts?.[0]?.text || null; if (aiReport) { aiError = null; break; } } else { aiError = `Model ${model} failed.`; }
-      } catch (err) { aiError = err.message; }
+    return res.json({ ruleBasedReport });
+  }
+
+  // --- NEW: Return cached AI subset if AI is specifically requested ---
+  if (aiCache.has(req.body.hostname)) {
+    const cached = aiCache.get(req.body.hostname);
+    if (mode === 'ai') return res.json({ aiReport: cached.aiReport, aiError: cached.aiError });
+    return res.json(cached);
+  }
+
+  const ruleBasedReport = generateReport(req.body.raw, req.body.hostname);
+  
+  if (!req.user || !req.user.is_pro) return res.json({ ruleBasedReport, aiReport: null, aiError: "Pro upgrade required." });
+  if (!process.env.GEMINI_API_KEY) return res.json({ ruleBasedReport, aiReport: null, aiError: "GEMINI_API_KEY missing." });
+  
+  let aiReport = null, aiError = null;
+  let dastAlerts = [];
+  if (req.body.raw.activeDastReport?.site?.[0]?.alerts) {
+    dastAlerts = req.body.raw.activeDastReport.site[0].alerts.map(a => ({
+      name: a.name,
+      risk: a.riskcode === "3" ? "High" : a.riskcode === "2" ? "Medium" : "Low",
+      description: a.desc.replace(/<[^>]+>/g, '').substring(0, 200) 
+    }));
+  }
+
+  const payloadContext = {
+    missingHeaders: req.body.raw.headers?.missing || [],
+    exposedFiles: req.body.raw.exposedFiles || [],
+    emailAuth: req.body.raw.emailAuth || {},
+    activeVulnerabilities: dastAlerts
+  };
+
+  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}. Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
+  
+  const model = "gemini-3.6-flash";
+  const maxRetries = 3;
+  let attempt = 1;
+
+  while (attempt <= maxRetries) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ 
+          contents: [{ parts: [{ text: prompt }] }], 
+          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+          safetySettings: [
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
+          ]
+        }) 
+      });
+      
+      if (response.ok) { 
+        const jsonRes = await response.json();
+        if (jsonRes.candidates?.[0]?.finishReason === "SAFETY") {
+           aiError = "Google API blocked the response due to safety filters.";
+           break;
+        }
+        aiReport = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || null; 
+        aiError = null; 
+        
+        // Cache the specific AI response
+        const finalAiResponse = { aiReport, aiError };
+        aiCache.set(req.body.hostname, finalAiResponse);
+        setTimeout(() => aiCache.delete(req.body.hostname), 3600000);
+        break; 
+      } else { 
+        const errorData = await response.json();
+        const isRateLimit = response.status === 429 || response.status === 503;
+        
+        if (isRateLimit && attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+          attempt++;
+          continue;
+        }
+        
+        aiError = `Google API Error (${model}): ${errorData.error?.message || response.statusText}`; 
+        break; 
+      }
+    } catch (err) { 
+      if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+          attempt++;
+          continue;
+      }
+      aiError = `Network Error (${model}): ${err.message}`; 
+      break;
     }
-    res.json({ ruleBasedReport, aiReport, aiError });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  }
+  
+  if (mode === 'ai') return res.json({ aiReport, aiError });
+  res.json({ ruleBasedReport, aiReport, aiError });
 });
 
 app.get("/api/report/:hostname", async (req, res) => { const data = await getLatestScan(req.params.hostname); if (!data) return res.status(404).json({ error: "No scan found." }); res.json(data); });

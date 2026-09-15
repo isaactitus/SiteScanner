@@ -9,6 +9,7 @@ export const db = createClient({
 
 export async function initDb() {
   await db.execute(`CREATE TABLE IF NOT EXISTS scan_history (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  try { await db.execute(`ALTER TABLE scan_history ADD COLUMN user_id TEXT`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS latest_scans (hostname TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   await db.execute(`CREATE TABLE IF NOT EXISTS public_feed (id INTEGER PRIMARY KEY AUTOINCREMENT, hostname TEXT NOT NULL, score INTEGER NOT NULL, grade TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   try { await db.execute(`ALTER TABLE public_feed ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`); } catch {}
@@ -40,9 +41,9 @@ export async function checkDomainEntitlement(userId, hostname) {
   if (userRes.rows.length && userRes.rows[0].is_pro) return true;
   return (await db.execute({ sql: `SELECT 1 FROM entitlements WHERE user_id = ? AND hostname = ? LIMIT 1`, args: [userId, hostname.toLowerCase()] })).rows.length > 0;
 }
-export async function recordScan(hostname, score, grade) {
+export async function recordScan(hostname, score, grade, userId = null) {
   const prev = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 1`, args: [hostname] });
-  await db.execute({ sql: `INSERT INTO scan_history (hostname, score, grade, scanned_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade] });
+  await db.execute({ sql: `INSERT INTO scan_history (hostname, score, grade, user_id, scanned_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`, args: [hostname, score, grade, userId] });
   const history = await db.execute({ sql: `SELECT score, grade, scanned_at FROM scan_history WHERE hostname = ? ORDER BY id DESC LIMIT 5`, args: [hostname] });
   return { previous: prev.rows[0] || null, history: history.rows };
 }
@@ -72,4 +73,7 @@ export async function toggleMonitorStatus(userId, monitorId, isActive) {
 }
 export async function toggleMonitorByHostname(userId, hostname, isActive) {
   await db.execute({ sql: `UPDATE monitors SET is_active = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, userId, hostname.toLowerCase()] });
+}
+export async function getUserHistory(userId) {
+  return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows;
 }

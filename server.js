@@ -19,7 +19,7 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 
 const app = express();
@@ -297,7 +297,7 @@ app.post("/api/scan", scanLimiter, async (req, res) => {
   try {
     const hostname = sanitizeTargetDomain(req.body.url); await validatePublicHostname(hostname);
     const raw = await runScanPipeline(hostname); const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
-    const { previous, history } = await recordScan(hostname, score, grade);
+    const { previous, history } = await recordScan(hostname, score, grade, req.user ? req.user.id : null);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
     
     aiCache.delete(hostname);
@@ -325,7 +325,7 @@ app.post("/api/scan-active", scanLimiter, async (req, res) => {
     }
 
     const { score } = calculateScore(raw, hostname); const grade = scoreToGrade(score);
-    const { previous, history } = await recordScan(hostname, score, grade);
+    const { previous, history } = await recordScan(hostname, score, grade, req.user ? req.user.id : null);
     const scanResult = { hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history };
     
     aiCache.delete(hostname);
@@ -464,6 +464,12 @@ app.post("/api/explain", async (req, res) => {
 app.get("/api/report/:hostname", async (req, res) => { const data = await getLatestScan(req.params.hostname); if (!data) return res.status(404).json({ error: "No scan found." }); res.json(data); });
 app.get("/api/recent", async (req, res) => { res.json(await getPublicFeed()); });
 app.get("/report/:hostname", (req, res) => { res.sendFile(path.join(__dirname, "public", "report.html")); });
+
+app.get("/api/user-history", async (req, res) => { 
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  res.json(await getUserHistory(req.user.id)); 
+});
+app.get("/history", (req, res) => { res.sendFile(path.join(__dirname, "public", "history.html")); });
 
 // ---------- Keep-Alive Route for Render/Cron-job.org ----------
 app.get("/api/cron/tick", (req, res) => {

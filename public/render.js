@@ -27,7 +27,8 @@ function updateNavAuthUI() {
       </div>
       <div id="userDropdown" style="display: none; position: absolute; right: 0; top: 44px; background: #0b0f19; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 12px; z-index: 10000; box-shadow: 0 10px 25px rgba(0,0,0,0.5); min-width: 200px;">
         <div style="font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 12px; word-break: break-all;">${currentUser.email}</div>
-        <a href="/dashboard.html" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 12px; padding: 6px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; border: 1px solid rgba(255,255,255,0.1);">Dashboard & Alerts</a>
+        <a href="/dashboard.html" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 8px; padding: 6px 8px; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; border: 1px solid rgba(255,255,255,0.1);">Dashboard & Alerts</a>
+        <a href="/history" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 12px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 6px; text-align: center; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;">Scan History</a>
         <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px;" />
         <button id="logoutBtn" style="background: transparent; border: none; color: var(--brand-rose); font-size: 0.85rem; cursor: pointer; padding: 4px 0; width: 100%; text-align: left;">Sign Out</button>
       </div>`;

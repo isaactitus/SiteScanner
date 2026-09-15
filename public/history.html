@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiteScanner — Audit History</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .history-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--surface-border);
+      align-items: center;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .history-row:hover { background: rgba(255,255,255,0.03); }
+    .history-row:last-child { border-bottom: none; }
+    .history-header {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--surface-border);
+      background: rgba(15,23,42,0.8);
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container" style="max-width: 900px;">
+    <nav class="app-nav">
+      <a href="/" class="nav-brand"><span class="nav-brand-badge"></span>SiteScanner</a>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="/" class="cta-button" style="padding: 8px 16px; font-size: 0.85rem; background: transparent; border-color: var(--surface-border);">+ New Scan</a>
+        <div id="authNavContainer"></div>
+      </div>
+    </nav>
+
+    <header style="margin-bottom: 32px;">
+      <h1 style="font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Audit History</h1>
+      <p style="color: var(--text-secondary);">A private log of all security assessments executed by your account.</p>
+    </header>
+
+    <main class="card" style="padding: 0; overflow: hidden; border-color: var(--surface-border-hover);">
+      <div class="history-row history-header">
+        <span>Target Domain</span>
+        <span>Score</span>
+        <span>Grade</span>
+        <span style="text-align: right;">Date Executed</span>
+      </div>
+      <div id="historyList">
+        <div style="padding: 48px; text-align: center; color: var(--text-tertiary);">Loading encrypted logs...</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/render.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      if (window.authReady) await window.authReady;
+      if (!currentUser) return window.location.href = "/";
+
+      try {
+        const res = await fetch("/api/user-history");
+        const scans = await res.json();
+        const list = document.getElementById("historyList");
+
+        if (scans.length === 0) {
+          list.innerHTML = `<div style="padding: 48px; text-align: center; color: var(--text-secondary);">You haven't run any audits while signed in yet.</div>`;
+          return;
+        }
+
+        list.innerHTML = scans.map(s => {
+          const scoreColor = s.score >= 75 ? 'var(--brand-emerald)' : s.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+          const date = new Date(s.scanned_at.replace(" ", "T") + "Z").toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          
+          return `
+            <a href="/report/${encodeURIComponent(s.hostname)}" class="history-row">
+              <span style="color: #fff; font-weight: 600; font-family: var(--font-mono);">${s.hostname}</span>
+              <span style="color: ${scoreColor}; font-weight: 700;">${s.score} / 100</span>
+              <span style="color: ${scoreColor}; font-weight: 800;">${s.grade}</span>
+              <span style="color: var(--text-tertiary); font-size: 0.85rem; text-align: right;">${date}</span>
+            </a>
+          `;
+        }).join('');
+      } catch (err) {
+        document.getElementById("historyList").innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Error loading history.</div>`;
+      }
+    });
+  </script>
+</body>
+</html>
