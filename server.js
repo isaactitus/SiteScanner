@@ -19,8 +19,9 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
+import { sendAlertEmail } from "./email-service.js"; // <-- Smart Email Import
 
 const app = express();
 app.set("trust proxy", 1); 
@@ -205,8 +206,21 @@ app.post("/api/verification/check", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
-// ---------- Monitors & Toggles ----------
-app.post("/api/monitors", async (req, res) => { if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); res.json({ success: true }); });
+// ---------- Monitors & Toggles (SMART ALERTS INTEGRATED) ----------
+app.post("/api/monitors", async (req, res) => { 
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); 
+  await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
+  
+  // Instantly send activation email and set the baseline
+  const latest = await getLatestScan(req.body.hostname);
+  if (latest && latest.score !== undefined) {
+     await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
+     await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
+  }
+  
+  res.json({ success: true }); 
+});
+
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
@@ -214,7 +228,20 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
 });
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+  try { 
+    await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); 
+    
+    // Instantly send activation email if they just toggled it ON
+    if (req.body.isActive) {
+       const latest = await getLatestScan(req.body.hostname);
+       if (latest && latest.score !== undefined) {
+          await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
+          await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
+       }
+    }
+    
+    res.json({ success: true }); 
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ---------- PDF Generation ----------

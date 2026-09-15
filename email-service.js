@@ -1,56 +1,70 @@
 // email-service.js
-import { Resend } from "resend";
+import fetch from "node-fetch";
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
-
-export async function sendAuditAlert({ to, hostname, currentScore, previousScore, issues }) {
-  if (!resend) {
-    console.warn("[EmailService] RESEND_API_KEY is not configured. Skipping alert.");
-    return null;
+export async function sendAlertEmail(toEmail, hostname, oldScore, newScore, eventType) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "SiteScanner Alerts <onboarding@resend.dev>";
+  
+  if (!apiKey) {
+    console.error("No Resend API key found.");
+    return;
   }
 
-  const scoreDiff = currentScore - (previousScore ?? currentScore);
-  const diffDisplay = scoreDiff > 0 ? `+${scoreDiff} pts` : `${scoreDiff} pts`;
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "SiteScanner <alerts@yourdomain.com>";
-  const appUrl = process.env.APP_URL || "https://sitescanner.onrender.com";
+  let subject = "";
+  let headline = "";
+  let message = "";
+  let color = "#10b981"; // emerald
 
-  return await resend.emails.send({
-    from: fromEmail,
-    to,
-    subject: `[Alert] Security Audit Report for ${hostname} (Grade: ${currentScore}/100)`,
-    html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #0f172a; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
-        <h2 style="color: #0284c7; margin-top: 0; font-size: 20px;">SiteScanner Automated Audit</h2>
-        <p style="font-size: 15px; color: #475569;">Target domain: <strong>${hostname}</strong></p>
-        
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px; margin: 20px 0;">
-          <p style="font-size: 18px; margin: 0 0 6px; font-weight: 700;">
-            Current Score: ${currentScore}/100 
-            <span style="font-size: 14px; color: ${scoreDiff < 0 ? '#ef4444' : '#10b981'}; font-weight: 600;">(${diffDisplay})</span>
-          </p>
-          ${
-            currentScore < 70
-              ? `<p style="color: #ef4444; font-size: 14px; margin: 0; font-weight: 600;">⚠️ Security score is below your designated health threshold.</p>`
-              : `<p style="color: #10b981; font-size: 14px; margin: 0; font-weight: 600;">✓ Baseline health checks are passing.</p>`
-          }
-        </div>
+  // Determine email context based on the event
+  if (eventType === "activated") {
+    subject = `✅ Monitoring Activated: ${hostname}`;
+    headline = `Threat Monitoring Active`;
+    message = `You have successfully armed the active security monitor for <b>${hostname}</b>. We have established your baseline score, and will notify you immediately if your security posture fluctuates.`;
+    color = "#8b5cf6"; // purple
+  } else if (newScore < oldScore) {
+    subject = `🚨 ALERT: Security Score Dropped for ${hostname}`;
+    headline = `Security Degradation Detected`;
+    message = `The security score for <b>${hostname}</b> has dropped from ${oldScore} to ${newScore}. A new vulnerability or misconfiguration was detected. Immediate attention is recommended.`;
+    color = "#f43f5e"; // rose
+  } else if (newScore > oldScore) {
+    subject = `📈 UPGRADE: Security Score Improved for ${hostname}`;
+    headline = `Security Posture Improved`;
+    message = `Great news! The security score for <b>${hostname}</b> has increased from ${oldScore} to ${newScore}. Your recent remediations were successful.`;
+    color = "#10b981"; // emerald
+  } else {
+    return; // No change, no email needed
+  }
 
-        <h3 style="font-size: 15px; margin-top: 24px; color: #0f172a;">Key Audit Findings:</h3>
-        <ul style="line-height: 1.6; color: #334155; font-size: 14px; padding-left: 20px;">
-          ${(issues && issues.length > 0 ? issues : ["Review full report for detailed breakdown."])
-            .map((issue) => `<li>${issue}</li>`)
-            .join("")}
-        </ul>
-
-        <div style="margin-top: 28px;">
-          <a href="${appUrl}/report/${encodeURIComponent(hostname)}" 
-             style="background: #0f172a; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600; display: inline-block;">
-            View Detailed Audit
-          </a>
-        </div>
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #04070f; color: #fff; padding: 32px; border-radius: 12px; border: 1px solid #1e293b;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h2 style="color: ${color}; margin-top: 0; font-size: 24px;">${headline}</h2>
       </div>
-    `,
-  });
+      <p style="color: #cbd5e1; font-size: 16px; line-height: 1.6;">${message}</p>
+      
+      <div style="background-color: #0f172a; padding: 32px; border-radius: 8px; margin: 32px 0; border: 1px solid #1e293b; text-align: center;">
+        <div style="font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 700;">Current Audit Score</div>
+        <div style="font-size: 56px; font-weight: 800; color: ${color};">${newScore} <span style="font-size: 24px; color: #475569;">/ 100</span></div>
+      </div>
+      
+      <div style="text-align: center;">
+        <a href="https://sitescanner-0z29.onrender.com/report/${hostname}" style="display: inline-block; background-color: ${color}; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 6px; font-weight: bold; font-size: 15px;">View Detailed Blueprint</a>
+      </div>
+      
+      <div style="margin-top: 48px; padding-top: 24px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b; text-align: center; font-weight: 600;">
+        Powered by LIBI Security • SiteScanner Engine 2.0
+      </div>
+    </div>
+  `;
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: fromEmail, to: toEmail, subject: subject, html: html })
+    });
+    console.log(`[Email] Successfully dispatched alert to ${toEmail} for ${hostname}`);
+  } catch (err) {
+    console.error("[Email] Failed to dispatch alert:", err);
+  }
 }

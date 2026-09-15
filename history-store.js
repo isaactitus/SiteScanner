@@ -77,3 +77,6 @@ export async function toggleMonitorByHostname(userId, hostname, isActive) {
 export async function getUserHistory(userId) {
   return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows;
 }
+export async function updateMonitorScore(userId, hostname, score) {
+  await db.execute({ sql: `UPDATE monitors SET last_score = ? WHERE user_id = ? AND hostname = ?`, args: [score, userId, hostname.toLowerCase()] });
+}
