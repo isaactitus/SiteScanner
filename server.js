@@ -19,7 +19,7 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore, deleteMonitor } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore, deleteMonitor, recordMonitorAdd, getDailyMonitorAddCount } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 import { sendAlertEmail } from "./email-service.js"; 
 
@@ -206,17 +206,26 @@ app.post("/api/verification/check", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
-// ---------- Monitors & Toggles (SMART ALERTS & CONSTRAINTS INTEGRATED) ----------
+// ---------- Monitors & Toggles (CAPACITY & VELOCITY LIMITS) ----------
 
-async function checkMonitorConstraints(userId, hostname) {
+async function checkMonitorConstraints(userId, hostname, isNewAddition = false) {
   const monitors = await getUserMonitors(userId);
-  // Count ALL domains in their list (active or inactive) to enforce 5-slot total limit
-  const totalCount = monitors.filter(m => m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
   
+  // RULE 1: Total Capacity (Max 5 slots on the dashboard)
+  const totalCount = monitors.filter(m => m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
   if (totalCount >= 5) {
-    return { allowed: false, reason: "Limit reached: You can only have 5 websites in your Command Center total. Please delete an existing monitor to free up a slot." };
+    return { allowed: false, reason: "Capacity Reached: Please remove a website from your dashboard. Max 5 websites allowed." };
   }
   
+  // RULE 2: Daily Velocity (Max 5 brand new websites per 24 hours)
+  if (isNewAddition) {
+    const dailyAddCount = await getDailyMonitorAddCount(userId);
+    if (dailyAddCount >= 5) {
+      return { allowed: false, reason: "Daily Limit Reached: You can only add 5 new websites per day. Please wait 24 hours." };
+    }
+  }
+  
+  // RULE 3: Cooldown (Cannot re-enable a deactivated site for 24 hours)
   const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
   if (existing && existing.disabled_at) {
     const hoursSinceDisabled = (Date.now() - existing.disabled_at) / (1000 * 60 * 60);
@@ -225,16 +234,27 @@ async function checkMonitorConstraints(userId, hostname) {
       return { allowed: false, reason: `Cooldown Active: You cannot re-enable alerts for this website for another ${remaining} hours.` };
     }
   }
+  
   return { allowed: true };
 }
 
 app.post("/api/monitors", async (req, res) => { 
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); 
   
-  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+  const monitors = await getUserMonitors(req.user.id);
+  const existing = monitors.find(m => m.hostname.toLowerCase() === req.body.hostname.toLowerCase());
+  const isBrandNew = !existing;
+
+  // Verify the limits BEFORE we save anything to the database
+  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, isBrandNew);
   if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
 
+  // Checks passed. Save it.
   await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
+  
+  if (isBrandNew) {
+    await recordMonitorAdd(req.user.id);
+  }
   
   const latest = await getLatestScan(req.body.hostname);
   if (latest && latest.score !== undefined) {
@@ -247,7 +267,6 @@ app.post("/api/monitors", async (req, res) => {
 
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
 
-// NEW DELETE ENDPOINT
 app.delete("/api/monitors/:id", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try {
@@ -269,7 +288,7 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
     if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
-      const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
+      const constraints = await checkMonitorConstraints(req.user.id, target.hostname, false); // false because it already exists
       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
     
@@ -302,7 +321,7 @@ app.patch("/api/monitors/toggle-domain", async (req, res) => {
     if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
-       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, false); // false because it already exists
        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
 

@@ -21,6 +21,9 @@ export async function initDb() {
   try { await db.execute(`ALTER TABLE monitors ADD COLUMN disabled_at INTEGER`); } catch {}
   
   await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
+
+  // NEW: Secure audit log table to track how many sites are added per day
+  await db.execute(`CREATE TABLE IF NOT EXISTS monitor_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 }
 initDb().catch(console.error);
 
@@ -50,8 +53,15 @@ export async function toggleMonitorByHostname(userId, hostname, isActive) {
   const disabledAt = isActive ? null : Date.now();
   await db.execute({ sql: `UPDATE monitors SET is_active = ?, disabled_at = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, disabledAt, userId, hostname.toLowerCase()] }); 
 }
-
-// NEW: Function to permanently delete a domain from a user's monitors
 export async function deleteMonitor(userId, monitorId) {
   await db.execute({ sql: `DELETE FROM monitors WHERE id = ? AND user_id = ?`, args: [monitorId, userId] });
+}
+
+// NEW: Functions to log and check daily limits
+export async function recordMonitorAdd(userId) {
+  await db.execute({ sql: `INSERT INTO monitor_events (user_id) VALUES (?)`, args: [userId] });
+}
+export async function getDailyMonitorAddCount(userId) {
+  const res = await db.execute({ sql: `SELECT COUNT(*) as count FROM monitor_events WHERE user_id = ? AND created_at >= datetime('now', '-1 day')`, args: [userId] });
+  return res.rows[0].count;
 }
