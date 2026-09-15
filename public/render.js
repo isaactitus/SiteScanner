@@ -346,28 +346,56 @@ function renderResults(data, targetId = "results") {
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
       const btn = document.getElementById("monitorBtn"); 
-      btn.disabled = true; 
       
       if (isMonitoring) {
-        btn.textContent = "Disabling...";
-        try {
-          await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
-          isMonitoring = false;
-          btn.textContent = "🔔 Enable Alerts"; 
-          btn.style.borderColor = "rgba(16,185,129,0.3)";
-          btn.style.color = "var(--brand-emerald)";
-        } catch (err) { btn.textContent = "Error"; }
+        // --- SHOW WARNING POPUP MODAL ---
+        if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
+        const modalHtml = `
+          <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+            <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+              <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
+              <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
+              <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for this specific website for the next 24 hours. Do you wish to continue?</p>
+              <div style="display:flex; gap: 12px;">
+                <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Continue</button>
+                <button id="cancelDisableBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.insertAdjacentHTML("beforeend", modalHtml);
+        
+        document.getElementById("cancelDisableBtn").onclick = () => document.getElementById("disableModal").remove();
+        
+        document.getElementById("confirmDisableBtn").onclick = async () => {
+           document.getElementById("disableModal").remove();
+           btn.disabled = true;
+           btn.textContent = "Disabling...";
+           try {
+             const res = await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
+             const data = await res.json();
+             if (data.error) throw new Error(data.error);
+             isMonitoring = false;
+             btn.textContent = "🔔 Enable Alerts"; 
+             btn.style.borderColor = "rgba(16,185,129,0.3)";
+             btn.style.color = "var(--brand-emerald)";
+           } catch (err) { alert(err.message); btn.textContent = "✓ Alerts Active"; }
+           btn.disabled = false;
+        };
       } else {
+        btn.disabled = true;
         btn.textContent = "Configuring...";
         try {
-          await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          const res = await fetch("/api/monitors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, interval: "weekly", threshold: 75 }) });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
           isMonitoring = true;
           btn.textContent = "✓ Alerts Active"; 
           btn.style.borderColor = "var(--brand-emerald)";
           btn.style.color = "var(--brand-emerald)";
-        } catch (err) { btn.textContent = "Error"; }
+        } catch (err) { alert(err.message); btn.textContent = "🔔 Enable Alerts"; }
+        btn.disabled = false;
       }
-      btn.disabled = false;
     });
   }
 

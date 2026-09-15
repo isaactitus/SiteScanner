@@ -207,11 +207,36 @@ app.post("/api/verification/check", async (req, res) => {
 });
 
 // ---------- Monitors & Toggles (SMART ALERTS INTEGRATED) ----------
+// ---------- Monitors & Toggles (LIMITS & COOLDOWN) ----------
+
+// Helper function to verify user hasn't hit the 5 site limit or 24-hr cooldown
+async function checkMonitorConstraints(userId, hostname) {
+  const monitors = await getUserMonitors(userId);
+  const activeCount = monitors.filter(m => m.is_active === 1).length;
+  
+  if (activeCount >= 5) {
+    return { allowed: false, reason: "Limit reached: You can only monitor up to 5 websites simultaneously." };
+  }
+  
+  const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
+  if (existing && existing.disabled_at) {
+    const hoursSinceDisabled = (Date.now() - existing.disabled_at) / (1000 * 60 * 60);
+    if (hoursSinceDisabled < 24) {
+      const remaining = Math.ceil(24 - hoursSinceDisabled);
+      return { allowed: false, reason: `Cooldown Active: You cannot re-enable alerts for this website for another ${remaining} hours.` };
+    }
+  }
+  return { allowed: true };
+}
+
 app.post("/api/monitors", async (req, res) => { 
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); 
+  
+  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+  if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+
   await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
   
-  // Instantly send activation email and set the baseline
   const latest = await getLatestScan(req.body.hostname);
   if (latest && latest.score !== undefined) {
      await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
@@ -222,22 +247,42 @@ app.post("/api/monitors", async (req, res) => {
 });
 
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
+
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
-  try { await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); res.json({ success: true }); } catch (err) { res.status(500).json({ error: err.message }); }
+  try { 
+    if (req.body.isActive) {
+      // (Used for dashboard toggles) Need to fetch hostname by ID to check constraints
+      const monitors = await getUserMonitors(req.user.id);
+      const target = monitors.find(m => m.id == req.params.id);
+      if (target) {
+        const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
+        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+      }
+    }
+    await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); 
+    res.json({ success: true }); 
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
+    if (req.body.isActive) {
+       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
+    }
+
     await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); 
     
-    // Instantly send activation email if they just toggled it ON
     if (req.body.isActive) {
        const latest = await getLatestScan(req.body.hostname);
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
           await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
        }
+    } else {
+       await sendAlertEmail(req.user.email, req.body.hostname, null, null, "deactivated");
     }
     
     res.json({ success: true }); 
