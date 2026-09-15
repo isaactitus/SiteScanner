@@ -297,36 +297,72 @@
             </div>`;
           }).join("");
 
-          // --- OPTIMISTIC UI TOGGLE LOGIC ---
+          // --- SMART UI TOGGLE LOGIC ---
           document.querySelectorAll('.optimistic-toggle').forEach(input => {
-            input.addEventListener('change', async (e) => {
+            input.addEventListener('click', async (e) => {
+              e.preventDefault(); 
               const id = e.target.getAttribute('data-id');
-              const isActive = e.target.checked;
+              const hostname = document.getElementById(`title-${id}`).textContent;
+              const willBeActive = !e.target.checked; 
               const row = document.getElementById(`monitor-row-${id}`);
-              
-              if (isActive) row.classList.remove('inactive');
-              else row.classList.add('inactive');
 
-              try {
+              if (!willBeActive) {
+                // SHOW WARNING POPUP MODAL FOR DASHBOARD
+                if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
+                const modalHtml = `
+                  <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+                    <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+                      <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
+                      <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
+                      <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for <strong>${hostname}</strong> for the next 24 hours. Do you wish to continue?</p>
+                      <div style="display:flex; gap: 12px;">
+                        <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Continue</button>
+                        <button id="cancelDisableBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+                `;
+                document.body.insertAdjacentHTML("beforeend", modalHtml);
+
+                document.getElementById("cancelDisableBtn").onclick = () => {
+                  document.getElementById("disableModal").remove();
+                };
+
+                document.getElementById("confirmDisableBtn").onclick = async () => {
+                   document.getElementById("disableModal").remove();
+                   await executeToggle(id, false, e.target, row);
+                };
+              } else {
+                // Instantly turn ON
+                await executeToggle(id, true, e.target, row);
+              }
+            });
+          });
+
+          // Helper function to process the API request
+          async function executeToggle(id, isActive, checkboxEl, rowEl) {
+             checkboxEl.checked = isActive; 
+             if (isActive) rowEl.classList.remove('inactive');
+             else rowEl.classList.add('inactive');
+
+             try {
                 const res = await fetch(`/api/monitors/${id}/toggle`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ isActive })
                 });
-                
-                if (!res.ok) throw new Error("Toggle failed");
-                
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
                 const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
                 document.getElementById("monitorCount").textContent = `${activeCount} Active`;
-
-              } catch (err) {
-                e.target.checked = !isActive;
-                if (!isActive) row.classList.remove('inactive');
-                else row.classList.add('inactive');
-                alert("Network error. Could not update monitor status.");
-              }
-            });
-          });
+             } catch (err) {
+                alert(err.message);
+                checkboxEl.checked = !isActive;
+                if (!isActive) rowEl.classList.remove('inactive');
+                else rowEl.classList.add('inactive');
+             }
+          }
 
         } catch (err) {
           listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;

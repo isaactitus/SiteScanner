@@ -21,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
 import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
-import { sendAlertEmail } from "./email-service.js"; // <-- Smart Email Import
+import { sendAlertEmail } from "./email-service.js"; 
 
 const app = express();
 app.set("trust proxy", 1); 
@@ -206,8 +206,7 @@ app.post("/api/verification/check", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
-// ---------- Monitors & Toggles (SMART ALERTS INTEGRATED) ----------
-// ---------- Monitors & Toggles (LIMITS & COOLDOWN) ----------
+// ---------- Monitors & Toggles (SMART ALERTS & CONSTRAINTS INTEGRATED) ----------
 
 // Helper function to verify user hasn't hit the 5 site limit or 24-hr cooldown
 async function checkMonitorConstraints(userId, hostname) {
@@ -251,16 +250,27 @@ app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
+    const monitors = await getUserMonitors(req.user.id);
+    const target = monitors.find(m => m.id == req.params.id);
+    if (!target) return res.status(404).json({ error: "Monitor not found" });
+
     if (req.body.isActive) {
-      // (Used for dashboard toggles) Need to fetch hostname by ID to check constraints
-      const monitors = await getUserMonitors(req.user.id);
-      const target = monitors.find(m => m.id == req.params.id);
-      if (target) {
-        const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
-        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
-      }
+      const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
+      if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
+    
     await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); 
+    
+    if (req.body.isActive) {
+       const latest = await getLatestScan(target.hostname);
+       if (latest && latest.score !== undefined) {
+          await updateMonitorScore(req.user.id, target.hostname, latest.score);
+          await sendAlertEmail(req.user.email, target.hostname, null, latest.score, "activated");
+       }
+    } else {
+       await sendAlertEmail(req.user.email, target.hostname, null, null, "deactivated");
+    }
+
     res.json({ success: true }); 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
