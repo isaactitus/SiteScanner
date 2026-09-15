@@ -288,7 +288,7 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
     if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
-      const constraints = await checkMonitorConstraints(req.user.id, target.hostname, false); // false because it already exists
+      const constraints = await checkMonitorConstraints(req.user.id, target.hostname, false); 
       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
     
@@ -321,7 +321,7 @@ app.patch("/api/monitors/toggle-domain", async (req, res) => {
     if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
 
     if (willBeActive) {
-       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, false); // false because it already exists
+       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, false); 
        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
 
@@ -514,14 +514,27 @@ app.post("/api/explain", async (req, res) => {
 
   const payloadContext = {
     missingHeaders: req.body.raw.headers?.missing || [],
+    presentHeaders: req.body.raw.headers?.present || [],
     exposedFiles: req.body.raw.exposedFiles || [],
     emailAuth: req.body.raw.emailAuth || {},
+    cors: req.body.raw.cors || {},
+    tls: req.body.raw.tls || {},
     activeVulnerabilities: dastAlerts
   };
 
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     
-  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}. Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
+  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}.
+
+STRICT ACCURACY RULES:
+1. Ground your report strictly in the provided scan data: ${JSON.stringify(payloadContext)}.
+2. DO NOT create action items or remediation tasks for checks that are PASSED or ENFORCED.
+   - If DMARC is verified (emailAuth.dmarc === true), DO NOT tell the user their DMARC is missing or put DMARC in the Action Plan. Explicitly confirm email authentication is verified and passing.
+   - If HSTS or other headers are present/enforced, DO NOT instruct the user to configure or fix them in the Action Plan.
+3. ONLY create remediation action items for ACTUAL detected vulnerabilities or warnings (e.g., if cors.wildcardOpen is true, recommend restricting Access-Control-Allow-Origin; if headers are missing, list only those missing headers).
+4. If the target has a clean baseline with minimal issues, state clearly that the perimeter is secure and passing, and only recommend remediating the specific warnings detected.
+
+Categorize clearly by Infrastructure and Application Runtime. Use professional markdown formatting with clear headings, bullet points, and concise action steps.`;
   
   const model = "gemini-3.6-flash";
   const maxRetries = 3;
