@@ -147,7 +147,6 @@ function renderResults(data, targetId = "results") {
     quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">✅</span><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
   }
 
-  // --- FIXED: Inject precise security score explicitly into top card and add explicit SVG sizing ---
   let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div><div style="margin-top: 6px; font-size: 0.95rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.15rem; margin-left: 4px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.8;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
@@ -270,25 +269,66 @@ function renderResults(data, targetId = "results") {
       try { const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}`)).blob(); const url = window.URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SiteScanner_${hostname}.pdf`; document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url); } catch { alert("PDF Export Error"); } finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
     });
     
+    // --- UPDATED: SPLIT RULE-BASED AND AI GENERATION LOGIC ---
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
-      const container = document.getElementById("reportContainer"); container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Compiling security intelligence blueprint...</div>';
+      const container = document.getElementById("reportContainer"); 
+      container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Generating Standard Security Report...</div>';
+      
       try {
-        const resData = await (await fetch("/api/explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw, hostname }) })).json();
+        const resData = await (await fetch("/api/explain", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          // Fetch only the standard report to save tokens
+          body: JSON.stringify({ raw, hostname, mode: 'standard' }) 
+        })).json();
         
         const parseMD = (text) => window.marked ? marked.parse(text) : text;
 
         let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
         
-        if (resData.aiReport) {
-          reportsHtml += `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(resData.aiReport)}</div></div>`;
-        } else if (resData.aiError) {
-          if (currentUser && currentUser.is_pro) {
-             reportsHtml += `<div class="card" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${resData.aiError}</p></div>`;
-          } else {
-             reportsHtml += `<div class="card" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
-          }
-        }
+        // Inject the isolated AI execution trigger
+        reportsHtml += `
+          <div id="aiReportContainer">
+            <div class="card" style="text-align: center; border: 1px dashed rgba(139,92,246,0.4); padding: 32px; background: rgba(139,92,246,0.05);">
+              <strong style="color: #c4b5fd; font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ Deep AI Analysis Available</strong>
+              <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">Run an Advanced AppSec review of this scan data using Google Gemini.</p>
+              <button id="generateAiBtn" class="cta-button" style="max-width: 250px; margin: 0 auto; background: var(--brand-purple); border: none;">Generate AI Blueprint</button>
+            </div>
+          </div>
+        `;
+
         container.innerHTML = reportsHtml;
+        
+        // Bind the new AI extraction button
+        document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
+          const aiContainer = document.getElementById("aiReportContainer");
+          aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--brand-purple);">Compiling AI security intelligence blueprint...</div>';
+
+          try {
+            const aiRes = await (await fetch("/api/explain", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ raw, hostname, mode: 'ai' })
+            })).json();
+
+            let aiHtml = '';
+            if (aiRes.aiReport) {
+              aiHtml = `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(aiRes.aiReport)}</div></div>`;
+            } else if (aiRes.aiError) {
+              if (currentUser && currentUser.is_pro) {
+                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
+              } else {
+                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+              }
+            } else {
+               aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">Pro upgrade required or GEMINI_API_KEY missing.</p></div>`;
+            }
+            aiContainer.innerHTML = aiHtml;
+          } catch (err) {
+             aiContainer.innerHTML = `<div class="card ai-error">AI Report error: ${err.message}</div>`;
+          }
+        });
+
       } catch (err) { container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; }
     });
 
