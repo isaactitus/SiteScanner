@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeBtn.classList.add('active');
     
     if (scanMode === 'active') {
-      submitScanBtn.textContent = 'Launch Active Exploits';
+      submitScanBtn.textContent = 'Run Active DAST';
       submitScanBtn.style.background = 'var(--brand-emerald)'; 
       submitScanBtn.style.color = '#fff';
       if(publicFeedOption) publicFeedOption.style.display = 'none';
@@ -50,13 +50,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return window.showDnsVerificationModal(rawDomain, async () => {
         submitScanBtn.disabled = true; 
         
-        // Trigger the new beautiful loading animation!
         if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
 
         try {
           const res = await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain }) });
           const data = await res.json();
-          clearInterval(window.activeLoadingInterval); // Stop the animation
+          clearInterval(window.activeLoadingInterval); 
           if (data.error) throw new Error(data.error);
           if (typeof renderResults === "function") renderResults(data, 'results'); 
           else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
@@ -65,20 +64,19 @@ document.addEventListener('DOMContentLoaded', () => {
           resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; 
         } finally { 
           submitScanBtn.disabled = false; 
-          submitScanBtn.textContent = 'Launch Active Exploits'; 
+          submitScanBtn.textContent = 'Run Active DAST'; 
         }
       });
     }
 
     submitScanBtn.disabled = true; 
     
-    // Trigger the new beautiful loading animation!
     if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
     
     try {
       const res = await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: rawDomain, ownershipConfirmed: confirmed, listPublicly: document.getElementById('listPublicly')?.checked }) });
       const data = await res.json(); 
-      clearInterval(window.activeLoadingInterval); // Stop the animation
+      clearInterval(window.activeLoadingInterval); 
       if (data.error) throw new Error(data.error);
       if (typeof renderResults === "function") { 
         renderResults(data, 'results'); 

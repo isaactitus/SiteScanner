@@ -383,57 +383,6 @@ function generateFixCode(platform, missingHeaders) {
 export { generateFixCode };
 </file>
 
-<file path="scanner-cron.js">
-// scanner-cron.js
-import cron from "node-cron";
-import { db, getUserProfile, saveLatestScan, recordScan, updateMonitorScore } from "./history-store.js";
-import { calculateScore, scoreToGrade } from "./report-generator.js";
-import { sendAlertEmail } from "./email-service.js";
-
-export function initCronJobs(runScanPipeline) {
-  // Run every 15 minutes to sweep active monitors
-  cron.schedule("*/15 * * * *", async () => {
-    console.log("[Cron] Sweeping active monitors...");
-    try {
-      const res = await db.execute(`SELECT * FROM monitors WHERE is_active = 1`);
-      const monitors = res.rows;
-      
-      for (const monitor of monitors) {
-        try {
-           const user = await getUserProfile(monitor.user_id);
-           if (!user || !user.is_pro) continue;
-
-           // Run the deep background scan
-           const raw = await runScanPipeline(monitor.hostname);
-           const { score } = calculateScore(raw, monitor.hostname);
-           const grade = scoreToGrade(score);
-           
-           // Silently record it to their scan history
-           const { previous, history } = await recordScan(monitor.hostname, score, grade, monitor.user_id);
-           await saveLatestScan(monitor.hostname, { hostname: monitor.hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history });
-           
-           // State Engine: Compare the new score against the last recorded score
-           const oldScore = monitor.last_score;
-           
-           // If they have an old score, and the new score is different, trigger the alert!
-           if (oldScore !== null && score !== oldScore) {
-              await sendAlertEmail(user.email, monitor.hostname, oldScore, score, "change");
-           }
-           
-           // Update the database with the new baseline score
-           await updateMonitorScore(monitor.user_id, monitor.hostname, score);
-
-        } catch (err) {
-           console.error(`[Cron] Error scanning ${monitor.hostname}:`, err);
-        }
-      }
-    } catch (err) {
-      console.error("[Cron] Database sweep failed:", err);
-    }
-  });
-}
-</file>
-
 <file path="email-service.js">
 // email-service.js
 import fetch from "node-fetch";
@@ -496,6 +445,73 @@ export async function sendAlertEmail(toEmail, hostname, oldScore, newScore, even
   try {
     await fetch("https://api.resend.com/emails", { method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: fromEmail, to: toEmail, subject: subject, html: html }) });
   } catch (err) { console.error("[Email] Failed to dispatch alert:", err); }
+}
+</file>
+
+<file path="scanner-cron.js">
+// scanner-cron.js
+import cron from "node-cron";
+import { db, getUserProfile, saveLatestScan, recordScan, updateMonitorScore } from "./history-store.js";
+import { calculateScore, scoreToGrade } from "./report-generator.js";
+import { sendAlertEmail } from "./email-service.js";
+
+export function initCronJobs(runScanPipeline) {
+  // Run every 15 minutes to sweep active monitors
+  cron.schedule("*/15 * * * *", async () => {
+    console.log("[Cron] Sweeping active monitors...");
+    try {
+      const res = await db.execute(`SELECT * FROM monitors WHERE is_active = 1`);
+      const monitors = res.rows;
+      
+      for (const monitor of monitors) {
+        try {
+           const user = await getUserProfile(monitor.user_id);
+           if (!user || !user.is_pro) continue;
+
+           // Run the deep background scan
+           const raw = await runScanPipeline(monitor.hostname);
+           const { score } = calculateScore(raw, monitor.hostname);
+           const grade = scoreToGrade(score);
+           const oldScore = monitor.last_score;
+           
+           let previous = null;
+           let historyLog = [];
+
+           // --- DELTA LOGGING ARCHITECTURE ---
+           // Only record to the Audit History if it's the very first scan OR if the score fluctuated
+           if (oldScore === null || score !== oldScore) {
+              const recordResult = await recordScan(monitor.hostname, score, grade, monitor.user_id);
+              previous = recordResult.previous;
+              historyLog = recordResult.history;
+              
+              // Trigger email alert for the change
+              if (oldScore !== null) {
+                 await sendAlertEmail(user.email, monitor.hostname, oldScore, score, "change");
+              }
+           }
+
+           // Always save the latest raw data so the Command Center dashboard stays fresh
+           await saveLatestScan(monitor.hostname, { 
+             hostname: monitor.hostname, 
+             scannedAt: new Date().toISOString(), 
+             raw, 
+             score, 
+             grade, 
+             previousScan: previous, 
+             history: historyLog 
+           });
+           
+           // Update the database with the new baseline score
+           await updateMonitorScore(monitor.user_id, monitor.hostname, score);
+
+        } catch (err) {
+           console.error(`[Cron] Error scanning ${monitor.hostname}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[Cron] Database sweep failed:", err);
+    }
+  });
 }
 </file>
 
@@ -883,7 +899,6 @@ document.addEventListener('DOMContentLoaded', () => {
   <title>SiteScanner — Command Center</title>
   <link rel="stylesheet" href="/style.css" />
   <style>
-    /* Premium Dashboard UI Elements */
     .dashboard-grid {
       display: grid;
       grid-template-columns: 320px 1fr;
@@ -1009,7 +1024,6 @@ document.addEventListener('DOMContentLoaded', () => {
 </head>
 <body>
   <div class="app-container" style="max-width: 1100px;">
-    <!-- Main Navigation Bar -->
     <nav class="app-nav">
       <a href="/" class="nav-brand">
         <span class="nav-brand-badge"></span>
@@ -1027,15 +1041,12 @@ document.addEventListener('DOMContentLoaded', () => {
     </header>
 
     <main class="dashboard-grid">
-      <!-- LEFT COLUMN: Account & Billing Overview -->
       <aside>
         <div class="card" style="padding: 0; background: transparent; border: none;">
           
           <div class="stat-block plan-block">
             <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
-            <div id="planStatusUi" style="margin-top: 12px;">
-              <!-- Injected via JS -->
-            </div>
+            <div id="planStatusUi" style="margin-top: 12px;"></div>
           </div>
 
           <div class="stat-block score-block">
@@ -1048,7 +1059,6 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </aside>
 
-      <!-- RIGHT COLUMN: The Monitor List -->
       <section>
         <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border-hover);">
           <div style="background: rgba(15,23,42,0.8); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
@@ -1073,14 +1083,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.authReady) await window.authReady;
       if (!currentUser) return window.location.href = "/";
 
-      // 1. Render Billing UI (Dynamically calculated based on purchase date)
+      // 1. Render Billing UI
       const planUi = document.getElementById("planStatusUi");
       if (currentUser.is_pro) {
         let daysRemaining = 30;
         let progressPercent = 0;
         
         if (currentUser.pro_started_at) {
-          // Robust Date parsing for SQLite timestamps
           let dbDateStr = currentUser.pro_started_at;
           if (!dbDateStr.includes("T")) dbDateStr = dbDateStr.replace(" ", "T");
           if (!dbDateStr.endsWith("Z")) dbDateStr += "Z";
@@ -1089,8 +1098,6 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!isNaN(startDate.getTime())) {
             const now = new Date();
             const diffDays = Math.max(0, (now - startDate) / (1000 * 60 * 60 * 24));
-            
-            // Standard rolling 30-day billing cycle calculation
             const cycleDay = diffDays % 30; 
             daysRemaining = Math.max(1, Math.ceil(30 - cycleDay));
             progressPercent = Math.round((cycleDay / 30) * 100);
@@ -1119,7 +1126,6 @@ document.addEventListener('DOMContentLoaded', () => {
           const res = await fetch("/api/monitors");
           const monitors = await res.json();
 
-          // Empty State Design
           if (monitors.length === 0) {
             document.getElementById("monitorCount").textContent = "0 Active";
             listEl.innerHTML = `
@@ -1132,7 +1138,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
           }
 
-          // Calculate Dashboard Stats
           const activeMonitors = monitors.filter(m => m.is_active);
           document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
           
@@ -1147,7 +1152,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
 
-          // Render Rows
           listEl.innerHTML = monitors.map(m => {
             const scoreColor = m.last_score >= 75 ? 'var(--brand-emerald)' : m.last_score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
             const rowClass = m.is_active ? 'monitor-row' : 'monitor-row inactive';
@@ -1163,28 +1167,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
               </div>
 
-              <div style="display: flex; align-items: center; gap: 32px;">
+              <div style="display: flex; align-items: center; gap: 24px;">
                 <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
                 
                 <label class="toggle-switch">
-                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" ${m.is_active ? 'checked' : ''}>
+                  <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" data-active="${m.is_active ? '1' : '0'}" ${m.is_active ? 'checked' : ''}>
                   <div class="toggle-slider"></div>
                 </label>
+
+                <button class="delete-monitor-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 1.2rem; transition: color 0.2s ease; padding: 4px;" title="Remove Target" onmouseover="this.style.color='var(--brand-rose)'" onmouseout="this.style.color='var(--text-tertiary)'">🗑️</button>
               </div>
             </div>`;
           }).join("");
 
-          // --- SMART UI TOGGLE LOGIC ---
-          document.querySelectorAll('.optimistic-toggle').forEach(input => {
-            input.addEventListener('click', async (e) => {
-              e.preventDefault(); 
+          // --- DELETE MONITOR LOGIC ---
+          document.querySelectorAll('.delete-monitor-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.preventDefault();
               const id = e.target.getAttribute('data-id');
-              const hostname = document.getElementById(`title-${id}`).textContent;
-              const willBeActive = !e.target.checked; 
+              const hostname = document.getElementById(`title-${id}`).textContent.trim();
+              
+              // Remove existing modal if it somehow got stuck
+              if (document.getElementById("deleteModal")) document.getElementById("deleteModal").remove();
+              
+              // Inject the custom premium warning modal
+              const modalHtml = `
+                <div id="deleteModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+                  <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+                    <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🗑️</span>
+                    <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Delete Monitor?</h3>
+                    <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">Are you sure you want to permanently remove <strong>${hostname}</strong> from your alerts? This will immediately halt all background scans and free up a dashboard slot.</p>
+                    <div style="display:flex; gap: 12px;">
+                      <button id="confirmDeleteBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Delete Target</button>
+                      <button id="cancelDeleteBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+              
+              document.body.insertAdjacentHTML("beforeend", modalHtml);
+              
+              // Handle Cancel
+              document.getElementById("cancelDeleteBtn").onclick = () => {
+                document.getElementById("deleteModal").remove();
+              };
+              
+              // Handle Confirm Delete
+              document.getElementById("confirmDeleteBtn").onclick = async () => {
+                const confirmBtn = document.getElementById("confirmDeleteBtn");
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = "Deleting...";
+                
+                try {
+                  const res = await fetch(`/api/monitors/${id}`, { method: 'DELETE' });
+                  const data = await res.json();
+                  if (!res.ok || data.error) throw new Error(data.error || "Delete failed");
+                  
+                  document.getElementById("deleteModal").remove();
+                  loadMonitors(); // Smoothly reload the UI to remove the row
+                  
+                  // Instantly update the Active counter
+                  const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
+                  document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+                } catch (err) {
+                  alert("Failed to delete: " + err.message);
+                  confirmBtn.disabled = false;
+                  confirmBtn.textContent = "Delete Target";
+                }
+              };
+            });
+          });
+
+          // --- ROBUST UI TOGGLE CONTROLLER ---
+          document.querySelectorAll('.optimistic-toggle').forEach(input => {
+            input.addEventListener('click', (e) => {
+              e.preventDefault(); 
+
+              const id = input.getAttribute('data-id');
+              const hostname = document.getElementById(`title-${id}`).textContent.trim();
+              const isCurrentlyActive = input.getAttribute('data-active') === '1';
               const row = document.getElementById(`monitor-row-${id}`);
 
-              if (!willBeActive) {
-                // SHOW WARNING POPUP MODAL FOR DASHBOARD
+              if (isCurrentlyActive) {
                 if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
                 const modalHtml = `
                   <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
@@ -1206,39 +1270,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
 
                 document.getElementById("confirmDisableBtn").onclick = async () => {
-                   document.getElementById("disableModal").remove();
-                   await executeToggle(id, false, e.target, row);
+                  document.getElementById("disableModal").remove();
+                  await executeToggle(id, false, input, row);
                 };
               } else {
-                // Instantly turn ON
-                await executeToggle(id, true, e.target, row);
+                executeToggle(id, true, input, row);
               }
             });
           });
 
-          // Helper function to process the API request
-          async function executeToggle(id, isActive, checkboxEl, rowEl) {
-             checkboxEl.checked = isActive; 
-             if (isActive) rowEl.classList.remove('inactive');
-             else rowEl.classList.add('inactive');
+          async function executeToggle(id, willBeActive, checkboxEl, rowEl) {
+            checkboxEl.checked = willBeActive;
+            if (willBeActive) rowEl.classList.remove('inactive');
+            else rowEl.classList.add('inactive');
 
-             try {
-                const res = await fetch(`/api/monitors/${id}/toggle`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ isActive })
-                });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
+            try {
+              const res = await fetch(`/api/monitors/${id}/toggle`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isActive: willBeActive })
+              });
+              const data = await res.json();
+              if (!res.ok || data.error) throw new Error(data.error || "Failed to update monitor status");
 
-                const activeCount = document.querySelectorAll('.optimistic-toggle:checked').length;
-                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
-             } catch (err) {
-                alert(err.message);
-                checkboxEl.checked = !isActive;
-                if (!isActive) rowEl.classList.remove('inactive');
-                else rowEl.classList.add('inactive');
-             }
+              checkboxEl.setAttribute('data-active', willBeActive ? '1' : '0');
+              checkboxEl.checked = willBeActive;
+
+              const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
+              document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+
+            } catch (err) {
+              alert(err.message);
+              const prevActive = checkboxEl.getAttribute('data-active') === '1';
+              checkboxEl.checked = prevActive;
+              if (prevActive) rowEl.classList.remove('inactive');
+              else rowEl.classList.add('inactive');
+            }
           }
 
         } catch (err) {
@@ -2465,11 +2532,13 @@ export async function initDb() {
   try { await db.execute(`ALTER TABLE users ADD COLUMN pro_started_at DATETIME`); } catch {}
   await db.execute(`CREATE TABLE IF NOT EXISTS entitlements (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, order_id TEXT, unlocked_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   
-  // Notice we added disabled_at here
   await db.execute(`CREATE TABLE IF NOT EXISTS monitors (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, check_interval TEXT DEFAULT 'weekly', alert_threshold INTEGER DEFAULT 70, next_run_at INTEGER NOT NULL, last_score INTEGER, is_active INTEGER DEFAULT 1, disabled_at INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id), UNIQUE(user_id, hostname))`);
   try { await db.execute(`ALTER TABLE monitors ADD COLUMN disabled_at INTEGER`); } catch {}
   
   await db.execute(`CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, hostname TEXT NOT NULL, token TEXT NOT NULL, is_verified INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, hostname))`);
+
+  // NEW: Secure audit log table to track how many sites are added per day
+  await db.execute(`CREATE TABLE IF NOT EXISTS monitor_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 }
 initDb().catch(console.error);
 
@@ -2488,7 +2557,6 @@ export async function markDomainVerified(userId, hostname) { await db.execute({ 
 export async function getUserHistory(userId) { return (await db.execute({ sql: `SELECT hostname, score, grade, scanned_at FROM scan_history WHERE user_id = ? ORDER BY scanned_at DESC LIMIT 50`, args: [userId] })).rows; }
 export async function updateMonitorScore(userId, hostname, score) { await db.execute({ sql: `UPDATE monitors SET last_score = ? WHERE user_id = ? AND hostname = ?`, args: [score, userId, hostname.toLowerCase()] }); }
 
-// NEW AND UPDATED LOGIC FOR TOGGLES
 export async function addMonitor({ userId, hostname, interval = "weekly", threshold = 70 }) { 
   await db.execute({ sql: `INSERT INTO monitors (user_id, hostname, check_interval, alert_threshold, next_run_at, disabled_at) VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT(user_id, hostname) DO UPDATE SET check_interval = excluded.check_interval, alert_threshold = excluded.alert_threshold, is_active = 1, disabled_at = NULL`, args: [userId, hostname.toLowerCase(), interval, threshold, Date.now()] }); 
 }
@@ -2499,6 +2567,18 @@ export async function toggleMonitorStatus(userId, monitorId, isActive) {
 export async function toggleMonitorByHostname(userId, hostname, isActive) { 
   const disabledAt = isActive ? null : Date.now();
   await db.execute({ sql: `UPDATE monitors SET is_active = ?, disabled_at = ? WHERE user_id = ? AND hostname = ?`, args: [isActive ? 1 : 0, disabledAt, userId, hostname.toLowerCase()] }); 
+}
+export async function deleteMonitor(userId, monitorId) {
+  await db.execute({ sql: `DELETE FROM monitors WHERE id = ? AND user_id = ?`, args: [monitorId, userId] });
+}
+
+// NEW: Functions to log and check daily limits
+export async function recordMonitorAdd(userId) {
+  await db.execute({ sql: `INSERT INTO monitor_events (user_id) VALUES (?)`, args: [userId] });
+}
+export async function getDailyMonitorAddCount(userId) {
+  const res = await db.execute({ sql: `SELECT COUNT(*) as count FROM monitor_events WHERE user_id = ? AND created_at >= datetime('now', '-1 day')`, args: [userId] });
+  return res.rows[0].count;
 }
 </file>
 
@@ -2994,7 +3074,7 @@ import puppeteer from "puppeteer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { generateReport, calculateScore, scoreToGrade, isSharedHostSubdomain } from "./report-generator.js";
-import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore } from "./history-store.js";
+import { db, recordScan, saveLatestScan, getLatestScan, addToPublicFeed, getPublicFeed, upsertUser, getUserProfile, addMonitor, getUserMonitors, getOrGenerateVerificationToken, markDomainVerified, toggleMonitorStatus, toggleMonitorByHostname, getUserHistory, updateMonitorScore, deleteMonitor, recordMonitorAdd, getDailyMonitorAddCount } from "./history-store.js";
 import { initCronJobs } from "./scanner-cron.js";
 import { sendAlertEmail } from "./email-service.js"; 
 
@@ -3181,17 +3261,26 @@ app.post("/api/verification/check", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: "System error occurred during verification." }); }
 });
 
-// ---------- Monitors & Toggles (SMART ALERTS & CONSTRAINTS INTEGRATED) ----------
+// ---------- Monitors & Toggles (CAPACITY & VELOCITY LIMITS) ----------
 
-// Helper function to verify user hasn't hit the 5 site limit or 24-hr cooldown
-async function checkMonitorConstraints(userId, hostname) {
+async function checkMonitorConstraints(userId, hostname, isNewAddition = false) {
   const monitors = await getUserMonitors(userId);
-  const activeCount = monitors.filter(m => m.is_active === 1).length;
   
-  if (activeCount >= 5) {
-    return { allowed: false, reason: "Limit reached: You can only monitor up to 5 websites simultaneously." };
+  // RULE 1: Total Capacity (Max 5 slots on the dashboard)
+  const totalCount = monitors.filter(m => m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
+  if (totalCount >= 5) {
+    return { allowed: false, reason: "Capacity Reached: Please remove a website from your dashboard. Max 5 websites allowed." };
   }
   
+  // RULE 2: Daily Velocity (Max 5 brand new websites per 24 hours)
+  if (isNewAddition) {
+    const dailyAddCount = await getDailyMonitorAddCount(userId);
+    if (dailyAddCount >= 5) {
+      return { allowed: false, reason: "Daily Limit Reached: You can only add 5 new websites per day. Please wait 24 hours." };
+    }
+  }
+  
+  // RULE 3: Cooldown (Cannot re-enable a deactivated site for 24 hours)
   const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
   if (existing && existing.disabled_at) {
     const hoursSinceDisabled = (Date.now() - existing.disabled_at) / (1000 * 60 * 60);
@@ -3200,16 +3289,27 @@ async function checkMonitorConstraints(userId, hostname) {
       return { allowed: false, reason: `Cooldown Active: You cannot re-enable alerts for this website for another ${remaining} hours.` };
     }
   }
+  
   return { allowed: true };
 }
 
 app.post("/api/monitors", async (req, res) => { 
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Pro unlock required" }); 
   
-  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+  const monitors = await getUserMonitors(req.user.id);
+  const existing = monitors.find(m => m.hostname.toLowerCase() === req.body.hostname.toLowerCase());
+  const isBrandNew = !existing;
+
+  // Verify the limits BEFORE we save anything to the database
+  const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, isBrandNew);
   if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
 
+  // Checks passed. Save it.
   await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
+  
+  if (isBrandNew) {
+    await recordMonitorAdd(req.user.id);
+  }
   
   const latest = await getLatestScan(req.body.hostname);
   if (latest && latest.score !== undefined) {
@@ -3222,6 +3322,14 @@ app.post("/api/monitors", async (req, res) => {
 
 app.get("/api/monitors", async (req, res) => { if (!req.user) return res.status(401).json({ error: "Unauthorized" }); res.json(await getUserMonitors(req.user.id)); });
 
+app.delete("/api/monitors/:id", async (req, res) => {
+  if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
+  try {
+    await deleteMonitor(req.user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.patch("/api/monitors/:id/toggle", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
@@ -3229,14 +3337,19 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
     const target = monitors.find(m => m.id == req.params.id);
     if (!target) return res.status(404).json({ error: "Monitor not found" });
 
-    if (req.body.isActive) {
-      const constraints = await checkMonitorConstraints(req.user.id, target.hostname);
+    const wasActive = Boolean(target.is_active);
+    const willBeActive = Boolean(req.body.isActive);
+
+    if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
+
+    if (willBeActive) {
+      const constraints = await checkMonitorConstraints(req.user.id, target.hostname, false); 
       if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
     
-    await toggleMonitorStatus(req.user.id, req.params.id, req.body.isActive); 
+    await toggleMonitorStatus(req.user.id, req.params.id, willBeActive); 
     
-    if (req.body.isActive) {
+    if (willBeActive) {
        const latest = await getLatestScan(target.hostname);
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, target.hostname, latest.score);
@@ -3253,14 +3366,23 @@ app.patch("/api/monitors/:id/toggle", async (req, res) => {
 app.patch("/api/monitors/toggle-domain", async (req, res) => {
   if (!req.user || !req.user.is_pro) return res.status(403).json({ error: "Unauthorized" });
   try { 
-    if (req.body.isActive) {
-       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname);
+    const monitors = await getUserMonitors(req.user.id);
+    const target = monitors.find(m => m.hostname.toLowerCase() === req.body.hostname.toLowerCase());
+    if (!target) return res.status(404).json({ error: "Monitor not found" });
+
+    const wasActive = Boolean(target.is_active);
+    const willBeActive = Boolean(req.body.isActive);
+
+    if (wasActive === willBeActive) return res.json({ success: true, message: "No change" });
+
+    if (willBeActive) {
+       const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, false); 
        if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
     }
 
-    await toggleMonitorByHostname(req.user.id, req.body.hostname, req.body.isActive); 
+    await toggleMonitorByHostname(req.user.id, req.body.hostname, willBeActive); 
     
-    if (req.body.isActive) {
+    if (willBeActive) {
        const latest = await getLatestScan(req.body.hostname);
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
@@ -3447,14 +3569,27 @@ app.post("/api/explain", async (req, res) => {
 
   const payloadContext = {
     missingHeaders: req.body.raw.headers?.missing || [],
+    presentHeaders: req.body.raw.headers?.present || [],
     exposedFiles: req.body.raw.exposedFiles || [],
     emailAuth: req.body.raw.emailAuth || {},
+    cors: req.body.raw.cors || {},
+    tls: req.body.raw.tls || {},
     activeVulnerabilities: dastAlerts
   };
 
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     
-  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}. Produce a comprehensive, actionable remediation blueprint for the detected issues. Categorize clearly by Infrastructure (Headers/Files) and Application Runtime (Active Vulnerabilities). Use professional markdown formatting with clear headings and bullet points. Ensure the response is complete and do not cut off the output mid-sentence. Scan findings: ${JSON.stringify(payloadContext)}`;
+  const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}.
+
+STRICT ACCURACY RULES:
+1. Ground your report strictly in the provided scan data: ${JSON.stringify(payloadContext)}.
+2. DO NOT create action items or remediation tasks for checks that are PASSED or ENFORCED.
+   - If DMARC is verified (emailAuth.dmarc === true), DO NOT tell the user their DMARC is missing or put DMARC in the Action Plan. Explicitly confirm email authentication is verified and passing.
+   - If HSTS or other headers are present/enforced, DO NOT instruct the user to configure or fix them in the Action Plan.
+3. ONLY create remediation action items for ACTUAL detected vulnerabilities or warnings (e.g., if cors.wildcardOpen is true, recommend restricting Access-Control-Allow-Origin; if headers are missing, list only those missing headers).
+4. If the target has a clean baseline with minimal issues, state clearly that the perimeter is secure and passing, and only recommend remediating the specific warnings detected.
+
+Categorize clearly by Infrastructure and Application Runtime. Use professional markdown formatting with clear headings, bullet points, and concise action steps.`;
   
   const model = "gemini-3.6-flash";
   const maxRetries = 3;

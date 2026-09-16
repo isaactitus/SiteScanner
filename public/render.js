@@ -141,21 +141,21 @@ function renderResults(data, targetId = "results") {
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
   
   if (isMalware || score < 40 || !raw.tls?.valid) {
-    quickStatusHtml = `<div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">🚨</span><div><strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong><span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(244, 63, 94, 0.15); border-color: var(--brand-rose); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><div><strong style="color: var(--brand-rose); display: block; font-size: 1.05rem; margin-bottom: 2px;">Critical Security Alert</strong><span style="color: #cbd5e1; font-size: 0.88rem;">${isMalware ? 'Unsafe to browse: Google Safe Browsing detected malware or social engineering.' : 'Severe vulnerabilities detected. Immediate developer attention required.'}</span></div></div>`;
   } else if (score < 75) {
-    quickStatusHtml = `<div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">⚠️</span><div><strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong><span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(245, 158, 11, 0.15); border-color: var(--brand-amber); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><div><strong style="color: var(--brand-amber); display: block; font-size: 1.05rem; margin-bottom: 2px;">Needs Attention</strong><span style="color: #cbd5e1; font-size: 0.88rem;">Site is operational but missing key security policies. Developer review recommended.</span></div></div>`;
   } else {
-    quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><span style="font-size: 1.8rem;">✅</span><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="background: rgba(16, 185, 129, 0.15); border-color: var(--brand-emerald); padding: 16px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px;"><div><strong style="color: var(--brand-emerald); display: block; font-size: 1.05rem; margin-bottom: 2px;">Clean & Safe to Browse</strong><span style="color: #cbd5e1; font-size: 0.88rem;">No critical exploits or malware detected. Core security posture is solid.</span></div></div>`;
   }
 
   let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:8px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(16,185,129,0.2); color:var(--brand-emerald); border:1px solid rgba(16,185,129,0.4); padding:2px 8px; border-radius:9999px;">PRO UNLOCKED</span>' : ""}</div><div style="margin-top: 6px; font-size: 0.95rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.15rem; margin-left: 4px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.8;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
-    html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">⚔️ Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
+    html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); background: rgba(16,185,129,0.05); margin-bottom: 16px;"><strong style="color:var(--brand-emerald); font-size:1rem; display:block; margin-bottom:8px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge status-ok" style="background:var(--brand-emerald); color:#fff;">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
       if (alerts.length === 0) {
-        html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">🛡️ Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
+        html += `<div class="card result-card" data-severity="passed" style="border-color: var(--brand-emerald); margin-bottom: 24px;"><strong style="color:var(--brand-emerald); display:block;">Zero Vulnerabilities Found</strong><p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">The active baseline scan did not detect any runtime exploits.</p></div>`;
       } else {
         html += `<h4 style="margin: 32px 0 16px; font-size: 1.1rem; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Findings</h4>`;
         alerts.forEach(alert => {
@@ -177,25 +177,25 @@ function renderResults(data, targetId = "results") {
   }
 
   const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
-  html += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔒 SSL/TLS Transport Encryption</strong>`;
+  html += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
   html += `</div>`;
 
   const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
-  html += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🛡️ HTTP Hardening Headers</strong>`;
+  html += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">HTTP Hardening Headers</strong>`;
   (raw.headers?.missing || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
   (raw.headers?.present || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
   html += `</div>`;
 
   const hasExposed = (raw.exposedFiles || []).length > 0;
-  html += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📁 Public File Leakage</strong>`;
-  if (isGuest && hasExposed) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">🔒 Sign in to view paths</button></div>`;
+  html += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1rem; display:block; margin-bottom:8px;">Public File Leakage</strong>`;
+  if (isGuest && hasExposed) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: rgba(15,23,42,0.9); border: 1px solid var(--brand-purple); color: #fff; padding: 8px 16px;">Sign in to view paths</button></div>`;
   else if (!raw.exposedFiles || raw.exposedFiles.length === 0) html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   else raw.exposedFiles.forEach(f => html += `<div class="result-item"><span style="font-family:var(--font-mono);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
   html += `</div>`;
 
   const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
-  html += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">📧 Email Spoofing Protection</strong>`;
+  html += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">Email Spoofing Protection</strong>`;
   if (raw.emailAuth?.isSharedHost) {
       html += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
   } else {
@@ -206,7 +206,7 @@ function renderResults(data, targetId = "results") {
 
   if (raw.cookies?.hasCookies) {
       const cookieSev = badCookies.length > 0 ? "warning" : "passed";
-      html += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🍪 Session & Cookie Security</strong>`;
+      html += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">Session & Cookie Security</strong>`;
       if (badCookies.length === 0) {
            html += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
       } else {
@@ -216,14 +216,14 @@ function renderResults(data, targetId = "results") {
   }
 
   const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
-  html += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">🔄 Cross-Origin Resource Sharing (CORS)</strong>`;
+  html += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1rem; display:block; margin-bottom:8px;">Cross-Origin Resource Sharing (CORS)</strong>`;
   if (raw.cors?.dangerousCombo) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
   else if (raw.cors?.wildcardOpen) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
   else html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
   html += `</div>`;
 
   if (isGuest) html += `<div class="card" style="text-align: center; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(180deg, rgba(30,27,75,0.3), rgba(15,23,42,0.8)); padding: 32px; margin-top: 24px;"><h3 style="color: #fff; margin-bottom: 8px;">Unlock Advanced Capabilities</h3><button onclick="showSignInModal()" class="cta-button" style="background: var(--brand-purple); border: none; max-width: 250px; margin: 0 auto;">Sign In with Google</button></div>`;
-  else html += `<div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));"><button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">📄 Export Executive PDF</button><button id="explainBtn" class="cta-button" type="button">✨ Remediation Blueprint</button><button id="monitorBtn" class="cta-button" type="button" style="border-color: rgba(16,185,129,0.3); color: var(--brand-emerald);">🔔 Enable Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 16px;"></div>`;
+  else html += `<div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));"><button id="exportPdfBtn" class="cta-button pdf-export-btn" type="button">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button">Remediation Blueprint</button><button id="monitorBtn" class="cta-button" type="button" style="border-color: rgba(16,185,129,0.3); color: var(--brand-emerald);">Enable Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 16px;"></div>`;
   
   resultsEl.innerHTML = html;
 
@@ -256,7 +256,7 @@ function renderResults(data, targetId = "results") {
             isMonitoring = true;
             const btn = document.getElementById("monitorBtn");
             if (btn) {
-              btn.textContent = "✓ Alerts Active";
+              btn.textContent = "Alerts Active";
               btn.style.borderColor = "var(--brand-emerald)";
               btn.style.color = "var(--brand-emerald)";
             }
@@ -268,7 +268,7 @@ function renderResults(data, targetId = "results") {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", () => window.location.reload());
       const btn = document.getElementById("exportPdfBtn"); 
       btn.disabled = true; 
-      btn.textContent = "Generating Corporate PDF...";
+      btn.textContent = "Generating PDF...";
       try { 
         const hasAi = document.querySelector('.ai-card') ? '?ai=true' : '';
         const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}${hasAi}`)).blob(); 
@@ -281,24 +281,22 @@ function renderResults(data, targetId = "results") {
         a.remove(); 
         window.URL.revokeObjectURL(url); 
       } catch { alert("PDF Export Error"); } 
-      finally { btn.disabled = false; btn.textContent = "📄 Export Executive PDF"; }
+      finally { btn.disabled = false; btn.textContent = "Export PDF Report"; }
     });
     
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
       const explainBtn = document.getElementById("explainBtn");
       explainBtn.disabled = true;
-      explainBtn.innerHTML = '<span style="display:inline-block; animation: pulse 1.5s infinite;">✨ Compiling...</span>';
+      explainBtn.innerHTML = '<span style="display:inline-block; animation: pulse 1.5s infinite;">Analyzing...</span>';
 
       const container = document.getElementById("reportContainer"); 
       
-      // Smooth fade-out setup for standard report
       container.style.opacity = "0";
       container.style.transform = "translateY(-10px)";
       container.style.transition = "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)";
       
       container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Generating Standard Security Report...</div>';
       
-      // Trigger fade-in
       setTimeout(() => {
         container.style.opacity = "1";
         container.style.transform = "translateY(0)";
@@ -318,18 +316,17 @@ function renderResults(data, targetId = "results") {
         reportsHtml += `
           <div id="aiReportContainer" style="animation: slideUp 0.6s ease-out;">
             <div class="card" style="text-align: center; border: 1px dashed rgba(139,92,246,0.4); padding: 32px; background: rgba(139,92,246,0.05);">
-              <strong style="color: #c4b5fd; font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ Deep AI Analysis Available</strong>
+              <strong style="color: #c4b5fd; font-size: 1.1rem; display: block; margin-bottom: 8px;">Advanced Analysis Available</strong>
               <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">Run an Advanced AppSec review of this scan data using Google Gemini.</p>
-              <button id="generateAiBtn" class="cta-button" style="max-width: 250px; margin: 0 auto; background: var(--brand-purple); border: none;">Generate AI Blueprint</button>
+              <button id="generateAiBtn" class="cta-button" style="max-width: 250px; margin: 0 auto; background: var(--brand-purple); border: none;">Generate Blueprint</button>
             </div>
           </div>
         `;
 
-        // Fade out loading, inject report, fade back in smoothly
         container.style.opacity = "0";
         setTimeout(() => {
           container.innerHTML = reportsHtml;
-          explainBtn.innerHTML = '✨ Blueprint Active';
+          explainBtn.innerHTML = 'Blueprint Active';
           explainBtn.style.borderColor = 'rgba(139,92,246,0.5)';
           explainBtn.style.color = '#c4b5fd';
           container.style.opacity = "1";
@@ -337,13 +334,12 @@ function renderResults(data, targetId = "results") {
           document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
             const aiContainer = document.getElementById("aiReportContainer");
             
-            // Smooth transition for AI loading state
             aiContainer.style.opacity = "0";
             aiContainer.style.transform = "translateY(-10px)";
             aiContainer.style.transition = "all 0.4s ease";
             
             setTimeout(() => {
-              aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:48px 32px; border: 1px solid rgba(139,92,246,0.3); background: rgba(15,23,42,0.8);"><span style="display:inline-block; font-size:2.5rem; margin-bottom:16px; animation: pulse 1.5s infinite;">🧠</span><h3 style="color:#c4b5fd; margin-bottom:8px;">Compiling AI Intelligence...</h3><p style="color:var(--text-tertiary); font-size:0.9rem;">Analyzing infrastructure and runtime telemetry.</p></div>';
+              aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:48px 32px; border: 1px solid rgba(139,92,246,0.3); background: rgba(15,23,42,0.8);"><h3 style="color:#c4b5fd; margin-bottom:8px; animation: pulse 1.5s infinite;">Compiling Assessment...</h3><p style="color:var(--text-tertiary); font-size:0.9rem;">Analyzing infrastructure and runtime telemetry.</p></div>';
               aiContainer.style.opacity = "1";
               aiContainer.style.transform = "translateY(0)";
             }, 400);
@@ -359,23 +355,20 @@ function renderResults(data, targetId = "results") {
               if (aiRes.aiReport) {
                 aiHtml = `
                   <div class="card ai-card" style="animation: slideUp 0.5s ease-out;">
-                    <div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div>
+                    <div class="ai-header"><div class="ai-header-title"><span>Actionable Remediation Blueprint</span></div></div>
                     <div class="report">${parseMD(aiRes.aiReport)}</div>
                   </div>
-                  <!-- The Duplicate Actions Section -->
                   <div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 16px; animation: slideUp 0.7s ease-out;">
-                    <button onclick="document.getElementById('exportPdfBtn').click()" class="cta-button pdf-export-btn" type="button">📄 Export PDF Report</button>
-                    <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="cta-button" type="button" style="background: transparent; border-color: var(--surface-border);">⬆️ Back to Top</button>
+                    <button onclick="document.getElementById('exportPdfBtn').click()" class="cta-button pdf-export-btn" type="button">Export PDF Report</button>
+                    <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="cta-button" type="button" style="background: transparent; border-color: var(--surface-border);">Back to Top</button>
                   </div>
                 `;
               } else if (aiRes.aiError) {
                 if (currentUser && currentUser.is_pro) {
-                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
+                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">Analysis Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
                 } else {
-                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
                 }
-              } else {
-                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">Pro upgrade required or GEMINI_API_KEY missing.</p></div>`;
               }
               
               setTimeout(() => {
@@ -384,10 +377,10 @@ function renderResults(data, targetId = "results") {
                   aiContainer.innerHTML = aiHtml;
                   aiContainer.style.opacity = "1";
                 }, 400);
-              }, 600); // Give the cool loading state a little time to show
+              }, 600); 
               
             } catch (err) {
-               aiContainer.innerHTML = `<div class="card ai-error">AI Report error: ${err.message}</div>`;
+               aiContainer.innerHTML = `<div class="card ai-error">Report Error: ${err.message}</div>`;
             }
           });
         }, 400);
@@ -395,7 +388,7 @@ function renderResults(data, targetId = "results") {
       } catch (err) { 
         container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; 
         explainBtn.disabled = false;
-        explainBtn.innerHTML = '✨ Remediation Blueprint';
+        explainBtn.innerHTML = 'Remediation Blueprint';
       }
     });
 
@@ -404,12 +397,10 @@ function renderResults(data, targetId = "results") {
       const btn = document.getElementById("monitorBtn"); 
       
       if (isMonitoring) {
-        // --- SHOW WARNING POPUP MODAL ---
         if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
         const modalHtml = `
           <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
             <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
-              <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
               <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
               <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for this specific website for the next 24 hours. Do you wish to continue?</p>
               <div style="display:flex; gap: 12px;">
@@ -432,10 +423,10 @@ function renderResults(data, targetId = "results") {
              const data = await res.json();
              if (data.error) throw new Error(data.error);
              isMonitoring = false;
-             btn.textContent = "🔔 Enable Alerts"; 
+             btn.textContent = "Enable Alerts"; 
              btn.style.borderColor = "rgba(16,185,129,0.3)";
              btn.style.color = "var(--brand-emerald)";
-           } catch (err) { alert(err.message); btn.textContent = "✓ Alerts Active"; }
+           } catch (err) { alert(err.message); btn.textContent = "Alerts Active"; }
            btn.disabled = false;
         };
       } else {
@@ -446,10 +437,10 @@ function renderResults(data, targetId = "results") {
           const data = await res.json();
           if (data.error) throw new Error(data.error);
           isMonitoring = true;
-          btn.textContent = "✓ Alerts Active"; 
+          btn.textContent = "Alerts Active"; 
           btn.style.borderColor = "var(--brand-emerald)";
           btn.style.color = "var(--brand-emerald)";
-        } catch (err) { alert(err.message); btn.textContent = "🔔 Enable Alerts"; }
+        } catch (err) { alert(err.message); btn.textContent = "Enable Alerts"; }
         btn.disabled = false;
       }
     });
@@ -480,7 +471,6 @@ window.showLoadingState = function(container, mode) {
   container.innerHTML = `
     <div class="card" style="padding: 56px 32px; text-align: center; border-color: ${color}; background: linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 100%); position: relative; overflow: hidden; animation: slideUp 0.35s ease-out forwards;">
       <div style="width: 64px; height: 64px; border-radius: 50%; background: ${isActive ? 'rgba(16,185,129,0.1)' : 'rgba(6,182,212,0.1)'}; color: ${color}; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 24px; animation: pulse 2s infinite; border: 1px solid ${isActive ? 'rgba(16,185,129,0.3)' : 'rgba(6,182,212,0.3)'}; box-shadow: 0 0 20px ${isActive ? 'rgba(16,185,129,0.2)' : 'rgba(6,182,212,0.2)'};">
-         ${isActive ? '⚔️' : '🛡️'}
       </div>
       <h3 style="color: #fff; font-size: 1.25rem; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.01em;">${title}</h3>
       <div style="width: 100%; max-width: 360px; height: 4px; background: rgba(255,255,255,0.1); margin: 0 auto; border-radius: 8px; overflow: hidden;">

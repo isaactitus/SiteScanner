@@ -14,24 +14,24 @@ export async function sendAlertEmail(toEmail, hostname, oldScore, newScore, even
   let scoreBlock = "";
 
   if (eventType === "activated") {
-    subject = `✅ Monitoring Activated: ${hostname}`;
-    headline = `Threat Monitoring Active`;
-    message = `You have successfully armed the active security monitor for <b>${hostname}</b>. We have established your baseline score, and will notify you immediately if your security posture fluctuates.`;
+    subject = `Monitor Enabled: ${hostname}`;
+    headline = `Telemetry Active`;
+    message = `Automated security monitoring has been enabled for <b>${hostname}</b>. A baseline score has been established. You will receive notifications if the security posture fluctuates.`;
     color = "#8b5cf6"; 
   } else if (eventType === "deactivated") {
-    subject = `🔕 Monitoring Deactivated: ${hostname}`;
-    headline = `Alerts Disabled`;
-    message = `You have successfully disabled active security monitoring for <b>${hostname}</b>. You will no longer receive alerts for this domain. <br><br><i>Please note: A 24-hour cooldown is now in effect before you can re-enable alerts for this website.</i>`;
+    subject = `Monitor Disabled: ${hostname}`;
+    headline = `Telemetry Disabled`;
+    message = `Automated security monitoring has been disabled for <b>${hostname}</b>. <br><br><i>Note: A 24-hour system cooldown is in effect before this monitor can be re-enabled.</i>`;
     color = "#64748b"; 
   } else if (newScore < oldScore) {
-    subject = `🚨 ALERT: Security Score Dropped for ${hostname}`;
+    subject = `Alert: Score Degradation for ${hostname}`;
     headline = `Security Degradation Detected`;
-    message = `The security score for <b>${hostname}</b> has dropped from ${oldScore} to ${newScore}. A new vulnerability or misconfiguration was detected. Immediate attention is recommended.`;
+    message = `The security score for <b>${hostname}</b> has dropped from ${oldScore} to ${newScore}. A new vulnerability or infrastructure misconfiguration has been detected. Review the dashboard to view the remediation blueprint.`;
     color = "#f43f5e"; 
   } else if (newScore > oldScore) {
-    subject = `📈 UPGRADE: Security Score Improved for ${hostname}`;
+    subject = `Notice: Score Improvement for ${hostname}`;
     headline = `Security Posture Improved`;
-    message = `Great news! The security score for <b>${hostname}</b> has increased from ${oldScore} to ${newScore}. Your recent remediations were successful.`;
+    message = `The security score for <b>${hostname}</b> has increased from ${oldScore} to ${newScore}. Recent remediations have been successfully verified.`;
     color = "#10b981"; 
   } else { return; }
 
@@ -50,7 +50,7 @@ export async function sendAlertEmail(toEmail, hostname, oldScore, newScore, even
       <p style="color: #cbd5e1; font-size: 16px; line-height: 1.6;">${message}</p>
       ${scoreBlock}
       <div style="text-align: center; margin-top: 32px;">
-        <a href="https://sitescanner-0z29.onrender.com/report/${hostname}" style="display: inline-block; background-color: ${color}; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 6px; font-weight: bold; font-size: 15px;">View Dashboard</a>
+        <a href="${process.env.APP_BASE_URL || 'https://sitescanner-0z29.onrender.com'}/report/${hostname}" style="display: inline-block; background-color: ${color}; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 6px; font-weight: bold; font-size: 15px;">View Dashboard</a>
       </div>
       <div style="margin-top: 48px; padding-top: 24px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b; text-align: center; font-weight: 600;">Powered by LIBI Security • SiteScanner Engine 2.0</div>
     </div>

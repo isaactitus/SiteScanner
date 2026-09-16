@@ -211,13 +211,11 @@ app.post("/api/verification/check", async (req, res) => {
 async function checkMonitorConstraints(userId, hostname, isNewAddition = false) {
   const monitors = await getUserMonitors(userId);
   
-  // RULE 1: Total Capacity (Max 5 slots on the dashboard)
   const totalCount = monitors.filter(m => m.hostname.toLowerCase() !== hostname.toLowerCase()).length;
   if (totalCount >= 5) {
     return { allowed: false, reason: "Capacity Reached: Please remove a website from your dashboard. Max 5 websites allowed." };
   }
   
-  // RULE 2: Daily Velocity (Max 5 brand new websites per 24 hours)
   if (isNewAddition) {
     const dailyAddCount = await getDailyMonitorAddCount(userId);
     if (dailyAddCount >= 5) {
@@ -225,7 +223,6 @@ async function checkMonitorConstraints(userId, hostname, isNewAddition = false) 
     }
   }
   
-  // RULE 3: Cooldown (Cannot re-enable a deactivated site for 24 hours)
   const existing = monitors.find(m => m.hostname.toLowerCase() === hostname.toLowerCase());
   if (existing && existing.disabled_at) {
     const hoursSinceDisabled = (Date.now() - existing.disabled_at) / (1000 * 60 * 60);
@@ -245,11 +242,9 @@ app.post("/api/monitors", async (req, res) => {
   const existing = monitors.find(m => m.hostname.toLowerCase() === req.body.hostname.toLowerCase());
   const isBrandNew = !existing;
 
-  // Verify the limits BEFORE we save anything to the database
   const constraints = await checkMonitorConstraints(req.user.id, req.body.hostname, isBrandNew);
   if (!constraints.allowed) return res.status(403).json({ error: constraints.reason });
 
-  // Checks passed. Save it.
   await addMonitor({ userId: req.user.id, hostname: req.body.hostname, interval: req.body.interval, threshold: req.body.threshold }); 
   
   if (isBrandNew) {
@@ -332,7 +327,7 @@ app.patch("/api/monitors/toggle-domain", async (req, res) => {
        if (latest && latest.score !== undefined) {
           await updateMonitorScore(req.user.id, req.body.hostname, latest.score);
           await sendAlertEmail(req.user.email, req.body.hostname, null, latest.score, "activated");
-       }
+   }
     } else {
        await sendAlertEmail(req.user.email, req.body.hostname, null, null, "deactivated");
     }
@@ -526,15 +521,16 @@ app.post("/api/explain", async (req, res) => {
     
   const prompt = `Act as a Senior AppSec Engineer. Analyze this security scan for "${req.body.hostname}" conducted on ${currentDate}.
 
-STRICT ACCURACY RULES:
+STRICT ACCURACY & TONE RULES:
 1. Ground your report strictly in the provided scan data: ${JSON.stringify(payloadContext)}.
 2. DO NOT create action items or remediation tasks for checks that are PASSED or ENFORCED.
    - If DMARC is verified (emailAuth.dmarc === true), DO NOT tell the user their DMARC is missing or put DMARC in the Action Plan. Explicitly confirm email authentication is verified and passing.
    - If HSTS or other headers are present/enforced, DO NOT instruct the user to configure or fix them in the Action Plan.
-3. ONLY create remediation action items for ACTUAL detected vulnerabilities or warnings (e.g., if cors.wildcardOpen is true, recommend restricting Access-Control-Allow-Origin; if headers are missing, list only those missing headers).
-4. If the target has a clean baseline with minimal issues, state clearly that the perimeter is secure and passing, and only recommend remediating the specific warnings detected.
+3. ONLY create remediation action items for ACTUAL detected vulnerabilities or warnings.
+4. TONE: Use a highly technical, dry, and clinical tone. STRICTLY AVOID marketing fluff, exclamation points, and common AI buzzwords (e.g., "delve", "robust", "supercharge", "seamless", "cutting-edge", "testament", "crucial", "tapestry").
+5. FORMATTING: Be concise. State the exact finding, the technical risk, and the specific configuration/code fix required. Avoid unnecessary prose.
 
-Categorize clearly by Infrastructure and Application Runtime. Use professional markdown formatting with clear headings, bullet points, and concise action steps.`;
+Categorize clearly by Infrastructure and Application Runtime. Use professional markdown formatting with clear headings and bullet points.`;
   
   const model = "gemini-3.6-flash";
   const maxRetries = 3;
