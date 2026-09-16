@@ -20,15 +20,15 @@
           <span class="nav-status-dot"></span> Engine Online
         </div>
         <div id="authNavContainer" style="position: relative;">
-          <button id="navSignInBtn" class="cta-button" style="padding: 6px 20px; font-size: 0.85rem;" type="button">Sign In</button>
+          <button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>
         </div>
       </div>
     </nav>
 
     <header class="hero-premium">
-      <div class="hero-badge">System Status: Engine 2.0 Operational</div>
-      <h1 class="hero-title-premium">Enterprise Web<br>Application Security.</h1>
-      <p class="hero-subtitle-premium">Automated passive reconnaissance, dynamic application security testing (DAST), and precise remediation blueprints for modern infrastructure.</p>
+      <div class="hero-badge">✨ SiteScanner Engine 2.0 is live</div>
+      <h1 class="hero-title-premium">Security intelligence,<br>simplified.</h1>
+      <p class="hero-subtitle-premium">Enterprise-grade passive reconnaissance, active DAST, and AI-driven remediation blueprints for modern web applications.</p>
     </header>
 
     <main>
@@ -57,12 +57,12 @@
           </div>
 
           <div class="omnibox-options">
-            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="ownershipConfirmed" checked required style="accent-color: var(--brand-cyan);" />
+            <label class="checkbox-label">
+              <input type="checkbox" id="ownershipConfirmed" checked required />
               <span>I confirm authorization to scan this domain</span>
             </label>
-            <label class="checkbox-label" id="publicFeedOption" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="listPublicly" checked style="accent-color: var(--brand-cyan);">
+            <label class="checkbox-label" id="publicFeedOption">
+              <input type="checkbox" id="listPublicly" checked>
               <span>List result in public recent scans</span>
             </label>
           </div>
@@ -74,24 +74,32 @@
 
       <!-- Default Homepage State: Bento Grid & Live Ticker -->
       <div id="homepage-defaults">
+        <!-- Live Threat Feed Ticker -->
+        <div class="feed-card" id="feedCard">
+          <span class="feed-title">Live Telemetry:</span>
+          <div class="feed-items" id="recentList">
+            <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
+          </div>
+        </div>
+
         <!-- SaaS Feature Bento Box -->
         <div class="bento-grid">
           <div class="bento-card">
-            <div class="bento-icon">[RECON]</div>
+            <div class="bento-icon" style="color: var(--brand-cyan); background: rgba(6,182,212,0.1);">🛡️</div>
             <h3 class="bento-title">Passive Reconnaissance</h3>
-            <p class="bento-desc">Evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server runtime.</p>
+            <p class="bento-desc">Instantly evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server.</p>
           </div>
           
-          <div class="bento-card">
-            <div class="bento-icon">[DAST]</div>
-            <h3 class="bento-title">Active Exploitation Engine</h3>
-            <p class="bento-desc">Deploy authorized containerized payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
+          <div class="bento-card bento-pro">
+            <div class="bento-icon" style="color: var(--brand-emerald); background: rgba(16,185,129,0.1);">⚔️</div>
+            <h3 class="bento-title">Active DAST Engine</h3>
+            <p class="bento-desc">Deploy authorized containerized exploitation payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
           </div>
 
-          <div class="bento-card">
-            <div class="bento-icon">[A.I.]</div>
-            <h3 class="bento-title">Remediation Blueprints</h3>
-            <p class="bento-desc">Generate tailored, highly-specific mitigation code and architectural configuration snippets to secure detected vulnerabilities.</p>
+          <div class="bento-card bento-ai">
+            <div class="bento-icon" style="color: var(--brand-purple); background: rgba(139,92,246,0.1);">✨</div>
+            <h3 class="bento-title">AI Remediation Blueprints</h3>
+            <p class="bento-desc">Generate tailored, highly-specific mitigation code and configuration snippets powered by Google Gemini advanced language models.</p>
           </div>
         </div>
       </div>
