@@ -32,8 +32,26 @@ function updateNavAuthUI() {
         <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px;" />
         <button id="logoutBtn" style="background: transparent; border: none; color: var(--brand-rose); font-size: 0.85rem; cursor: pointer; padding: 4px 0; width: 100%; text-align: left;">Sign Out</button>
       </div>`;
-    document.getElementById("userProfileBtn").onclick = (e) => { e.stopPropagation(); const dd = document.getElementById("userDropdown"); dd.style.display = dd.style.display === "none" ? "block" : "none"; };
-    document.addEventListener("click", () => { const dd = document.getElementById("userDropdown"); if (dd) dd.style.display = "none"; });
+      
+    document.getElementById("userProfileBtn").onclick = (e) => { 
+      e.stopPropagation(); 
+      const dd = document.getElementById("userDropdown"); 
+      dd.style.display = dd.style.display === "none" ? "block" : "none"; 
+    };
+    
+    // FIX: Prevent clicking links inside the dropdown from bubbling up and closing it instantly
+    document.getElementById("userDropdown").onclick = (e) => { 
+      e.stopPropagation(); 
+    };
+    
+    if (!window.navListenerAttached) {
+      document.addEventListener("click", () => { 
+        const dd = document.getElementById("userDropdown"); 
+        if (dd) dd.style.display = "none"; 
+      });
+      window.navListenerAttached = true;
+    }
+    
     document.getElementById("logoutBtn").onclick = async () => { await fetch("/api/auth/logout", { method: "POST" }); currentUser = null; location.reload(); };
   } else {
     container.innerHTML = `<button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>`;
