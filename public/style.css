@@ -73,6 +73,9 @@ body {
   margin-bottom: 56px;
   padding-bottom: 24px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  /* FIX: Force Nav layer to top to prevent unclickable dropdowns */
+  position: relative; 
+  z-index: 100;
 }
 
 .nav-brand {
