@@ -285,8 +285,24 @@ function renderResults(data, targetId = "results") {
     });
     
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
+      const explainBtn = document.getElementById("explainBtn");
+      explainBtn.disabled = true;
+      explainBtn.innerHTML = '<span style="display:inline-block; animation: pulse 1.5s infinite;">✨ Compiling...</span>';
+
       const container = document.getElementById("reportContainer"); 
+      
+      // Smooth fade-out setup for standard report
+      container.style.opacity = "0";
+      container.style.transform = "translateY(-10px)";
+      container.style.transition = "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)";
+      
       container.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">Generating Standard Security Report...</div>';
+      
+      // Trigger fade-in
+      setTimeout(() => {
+        container.style.opacity = "1";
+        container.style.transform = "translateY(0)";
+      }, 50);
       
       try {
         const resData = await (await fetch("/api/explain", { 
@@ -297,10 +313,10 @@ function renderResults(data, targetId = "results") {
         
         const parseMD = (text) => window.marked ? marked.parse(text) : text;
 
-        let reportsHtml = `<div class="card"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
+        let reportsHtml = `<div class="card" style="animation: slideUp 0.5s ease-out;"><strong style="display:block; font-size:1.1rem; margin-bottom:12px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
         
         reportsHtml += `
-          <div id="aiReportContainer">
+          <div id="aiReportContainer" style="animation: slideUp 0.6s ease-out;">
             <div class="card" style="text-align: center; border: 1px dashed rgba(139,92,246,0.4); padding: 32px; background: rgba(139,92,246,0.05);">
               <strong style="color: #c4b5fd; font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ Deep AI Analysis Available</strong>
               <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">Run an Advanced AppSec review of this scan data using Google Gemini.</p>
@@ -309,38 +325,78 @@ function renderResults(data, targetId = "results") {
           </div>
         `;
 
-        container.innerHTML = reportsHtml;
-        
-        document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
-          const aiContainer = document.getElementById("aiReportContainer");
-          aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:32px; color:var(--brand-purple);">Compiling AI security intelligence blueprint...</div>';
+        // Fade out loading, inject report, fade back in smoothly
+        container.style.opacity = "0";
+        setTimeout(() => {
+          container.innerHTML = reportsHtml;
+          explainBtn.innerHTML = '✨ Blueprint Active';
+          explainBtn.style.borderColor = 'rgba(139,92,246,0.5)';
+          explainBtn.style.color = '#c4b5fd';
+          container.style.opacity = "1";
+          
+          document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
+            const aiContainer = document.getElementById("aiReportContainer");
+            
+            // Smooth transition for AI loading state
+            aiContainer.style.opacity = "0";
+            aiContainer.style.transform = "translateY(-10px)";
+            aiContainer.style.transition = "all 0.4s ease";
+            
+            setTimeout(() => {
+              aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:48px 32px; border: 1px solid rgba(139,92,246,0.3); background: rgba(15,23,42,0.8);"><span style="display:inline-block; font-size:2.5rem; margin-bottom:16px; animation: pulse 1.5s infinite;">🧠</span><h3 style="color:#c4b5fd; margin-bottom:8px;">Compiling AI Intelligence...</h3><p style="color:var(--text-tertiary); font-size:0.9rem;">Analyzing infrastructure and runtime telemetry.</p></div>';
+              aiContainer.style.opacity = "1";
+              aiContainer.style.transform = "translateY(0)";
+            }, 400);
 
-          try {
-            const aiRes = await (await fetch("/api/explain", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ raw, hostname, mode: 'ai' })
-            })).json();
+            try {
+              const aiRes = await (await fetch("/api/explain", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ raw, hostname, mode: 'ai' })
+              })).json();
 
-            let aiHtml = '';
-            if (aiRes.aiReport) {
-              aiHtml = `<div class="card ai-card"><div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div><div class="report">${parseMD(aiRes.aiReport)}</div></div>`;
-            } else if (aiRes.aiError) {
-              if (currentUser && currentUser.is_pro) {
-                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
+              let aiHtml = '';
+              if (aiRes.aiReport) {
+                aiHtml = `
+                  <div class="card ai-card" style="animation: slideUp 0.5s ease-out;">
+                    <div class="ai-header"><div class="ai-header-title"><span>✨ Actionable AI Remediation Blueprint</span></div></div>
+                    <div class="report">${parseMD(aiRes.aiReport)}</div>
+                  </div>
+                  <!-- The Duplicate Actions Section -->
+                  <div class="action-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 16px; animation: slideUp 0.7s ease-out;">
+                    <button onclick="document.getElementById('exportPdfBtn').click()" class="cta-button pdf-export-btn" type="button">📄 Export PDF Report</button>
+                    <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="cta-button" type="button" style="background: transparent; border-color: var(--surface-border);">⬆️ Back to Top</button>
+                  </div>
+                `;
+              } else if (aiRes.aiError) {
+                if (currentUser && currentUser.is_pro) {
+                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">${aiRes.aiError}</p></div>`;
+                } else {
+                   aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+                }
               } else {
-                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(139,92,246,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-purple); font-size: 1.1rem; display: block; margin-bottom: 8px;">✨ AI Blueprint Locked</strong><button onclick="window.launchRazorpayCheckout('AI Remediation Blueprint', () => window.location.reload())" class="cta-button" style="background: rgba(139,92,246,0.1); border: 1px solid var(--brand-purple); color: #fff; max-width: 250px; margin: 0 auto;">Upgrade to Pro</button></div>`;
+                 aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">Pro upgrade required or GEMINI_API_KEY missing.</p></div>`;
               }
-            } else {
-               aiHtml = `<div class="card ai-error" style="border: 1px solid rgba(244,63,94,0.3); padding: 24px; text-align: center;"><strong style="color: var(--brand-rose); font-size: 1.1rem; display: block; margin-bottom: 8px;">⚠️ AI Engine Offline</strong><p style="color: var(--text-secondary); font-size: 0.9rem;">Pro upgrade required or GEMINI_API_KEY missing.</p></div>`;
+              
+              setTimeout(() => {
+                aiContainer.style.opacity = "0";
+                setTimeout(() => {
+                  aiContainer.innerHTML = aiHtml;
+                  aiContainer.style.opacity = "1";
+                }, 400);
+              }, 600); // Give the cool loading state a little time to show
+              
+            } catch (err) {
+               aiContainer.innerHTML = `<div class="card ai-error">AI Report error: ${err.message}</div>`;
             }
-            aiContainer.innerHTML = aiHtml;
-          } catch (err) {
-             aiContainer.innerHTML = `<div class="card ai-error">AI Report error: ${err.message}</div>`;
-          }
-        });
+          });
+        }, 400);
 
-      } catch (err) { container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; }
+      } catch (err) { 
+        container.innerHTML = `<div class="card">Report error: ${err.message}</div>`; 
+        explainBtn.disabled = false;
+        explainBtn.innerHTML = '✨ Remediation Blueprint';
+      }
     });
 
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
