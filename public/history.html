@@ -74,14 +74,21 @@
 
         list.innerHTML = scans.map(s => {
           const scoreColor = s.score >= 75 ? 'var(--brand-emerald)' : s.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
-          const date = new Date(s.scanned_at.replace(" ", "T") + "Z").toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          
+          // Parse the date and extract both Date and Time separately
+          const scanDate = new Date(s.scanned_at.replace(" ", "T") + "Z");
+          const dateStr = scanDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const timeStr = scanDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           
           return `
             <a href="/report/${encodeURIComponent(s.hostname)}" class="history-row">
               <span style="color: #fff; font-weight: 600; font-family: var(--font-mono);">${s.hostname}</span>
               <span style="color: ${scoreColor}; font-weight: 700;">${s.score} / 100</span>
               <span style="color: ${scoreColor}; font-weight: 800;">${s.grade}</span>
-              <span style="color: var(--text-tertiary); font-size: 0.85rem; text-align: right;">${date}</span>
+              <div style="text-align: right; display: flex; flex-direction: column; gap: 2px;">
+                <span style="color: var(--text-secondary); font-size: 0.85rem; font-weight: 600;">${dateStr}</span>
+                <span style="color: var(--text-tertiary); font-size: 0.75rem;">${timeStr}</span>
+              </div>
             </a>
           `;
         }).join('');
