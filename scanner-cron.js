@@ -21,18 +21,34 @@ export function initCronJobs(runScanPipeline) {
            const raw = await runScanPipeline(monitor.hostname);
            const { score } = calculateScore(raw, monitor.hostname);
            const grade = scoreToGrade(score);
-           
-           // Silently record it to their scan history
-           const { previous, history } = await recordScan(monitor.hostname, score, grade, monitor.user_id);
-           await saveLatestScan(monitor.hostname, { hostname: monitor.hostname, scannedAt: new Date().toISOString(), raw, score, grade, previousScan: previous, history });
-           
-           // State Engine: Compare the new score against the last recorded score
            const oldScore = monitor.last_score;
            
-           // If they have an old score, and the new score is different, trigger the alert!
-           if (oldScore !== null && score !== oldScore) {
-              await sendAlertEmail(user.email, monitor.hostname, oldScore, score, "change");
+           let previous = null;
+           let historyLog = [];
+
+           // --- DELTA LOGGING ARCHITECTURE ---
+           // Only record to the Audit History if it's the very first scan OR if the score fluctuated
+           if (oldScore === null || score !== oldScore) {
+              const recordResult = await recordScan(monitor.hostname, score, grade, monitor.user_id);
+              previous = recordResult.previous;
+              historyLog = recordResult.history;
+              
+              // Trigger email alert for the change
+              if (oldScore !== null) {
+                 await sendAlertEmail(user.email, monitor.hostname, oldScore, score, "change");
+              }
            }
+
+           // Always save the latest raw data so the Command Center dashboard stays fresh
+           await saveLatestScan(monitor.hostname, { 
+             hostname: monitor.hostname, 
+             scannedAt: new Date().toISOString(), 
+             raw, 
+             score, 
+             grade, 
+             previousScan: previous, 
+             history: historyLog 
+           });
            
            // Update the database with the new baseline score
            await updateMonitorScore(monitor.user_id, monitor.hostname, score);
