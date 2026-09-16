@@ -289,24 +289,59 @@
 
           // --- DELETE MONITOR LOGIC ---
           document.querySelectorAll('.delete-monitor-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
+            btn.addEventListener('click', (e) => {
+              e.preventDefault();
               const id = e.target.getAttribute('data-id');
               const hostname = document.getElementById(`title-${id}`).textContent.trim();
               
-              if (!confirm(`Are you sure you want to permanently delete ${hostname} from your monitors?`)) return;
+              // Remove existing modal if it somehow got stuck
+              if (document.getElementById("deleteModal")) document.getElementById("deleteModal").remove();
               
-              try {
-                const res = await fetch(`/api/monitors/${id}`, { method: 'DELETE' });
-                const data = await res.json();
-                if (!res.ok || data.error) throw new Error(data.error || "Delete failed");
+              // Inject the custom premium warning modal
+              const modalHtml = `
+                <div id="deleteModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
+                  <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
+                    <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🗑️</span>
+                    <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Delete Monitor?</h3>
+                    <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">Are you sure you want to permanently remove <strong>${hostname}</strong> from your alerts? This will immediately halt all background scans and free up a dashboard slot.</p>
+                    <div style="display:flex; gap: 12px;">
+                      <button id="confirmDeleteBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Delete Target</button>
+                      <button id="cancelDeleteBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+              
+              document.body.insertAdjacentHTML("beforeend", modalHtml);
+              
+              // Handle Cancel
+              document.getElementById("cancelDeleteBtn").onclick = () => {
+                document.getElementById("deleteModal").remove();
+              };
+              
+              // Handle Confirm Delete
+              document.getElementById("confirmDeleteBtn").onclick = async () => {
+                const confirmBtn = document.getElementById("confirmDeleteBtn");
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = "Deleting...";
                 
-                loadMonitors(); // Reload UI
-                
-                const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
-                document.getElementById("monitorCount").textContent = `${activeCount} Active`;
-              } catch (err) {
-                alert("Failed to delete: " + err.message);
-              }
+                try {
+                  const res = await fetch(`/api/monitors/${id}`, { method: 'DELETE' });
+                  const data = await res.json();
+                  if (!res.ok || data.error) throw new Error(data.error || "Delete failed");
+                  
+                  document.getElementById("deleteModal").remove();
+                  loadMonitors(); // Smoothly reload the UI to remove the row
+                  
+                  // Instantly update the Active counter
+                  const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
+                  document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+                } catch (err) {
+                  alert("Failed to delete: " + err.message);
+                  confirmBtn.disabled = false;
+                  confirmBtn.textContent = "Delete Target";
+                }
+              };
             });
           });
 
