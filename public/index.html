@@ -3,125 +3,95 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LIBI Scanner</title>
+  <title>SiteScanner — Enterprise Security Auditing</title>
   <link rel="stylesheet" href="/style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-
-  <div class="app-layout">
-    <!-- LEFT SIDEBAR -->
-    <aside class="sidebar">
-      <a href="/" class="sidebar-brand">
-        <div class="brand-icon"></div>
-        LIBI
+  <div class="app-container">
+    <nav class="app-nav">
+      <a href="/" class="nav-brand">
+        <span class="nav-brand-badge"></span>
+        SiteScanner
       </a>
-
-      <div class="sidebar-menu">
-        <a href="/" class="menu-item active">
-          <span class="menu-icon"></span> New scan
-        </a>
-        <a href="/history.html" class="menu-item">
-          <span class="menu-icon" style="border-color: transparent; border: 1px solid #d1d5db;"></span> History
-        </a>
-        <a href="/dashboard.html" class="menu-item">
-          <span class="menu-icon" style="border-color: transparent; border: 1px solid #d1d5db;"></span> Monitors
-        </a>
-      </div>
-
-      <div class="sidebar-footer" id="planUsageCard">
-        <span>Scans Left</span>
-        <strong>Unlimited</strong>
-        <div style="width: 100%; height: 2px; background: var(--brand-green); margin-top: 8px;"></div>
-      </div>
-    </aside>
-
-    <!-- MAIN CONTENT -->
-    <main class="main-area">
-      <div class="top-bar">
-        <h1 class="top-title">Scanner</h1>
-        <div class="top-actions" id="authNavContainer">
-          <button class="btn-outline" onclick="showSignInModal()">Sign In</button>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <div class="nav-status">
+          <span class="nav-status-dot"></span> Engine Online
+        </div>
+        <div id="authNavContainer" style="position: relative;">
+          <button id="navSignInBtn" class="cta-button" style="padding: 6px 20px; font-size: 0.85rem;" type="button">Sign In</button>
         </div>
       </div>
+    </nav>
 
-      <!-- SCAN HUB (HIDDEN WHEN RESULTS LOAD) -->
+    <header class="hero-premium">
+      <div class="hero-badge">[ SYSTEM STATUS: ENGINE 2.0 OPERATIONAL ]</div>
+      <h1 class="hero-title-premium">Enterprise Web<br>Application Security.</h1>
+      <p class="hero-subtitle-premium">Automated passive reconnaissance, dynamic application security testing (DAST), and precise remediation blueprints for modern infrastructure.</p>
+    </header>
+
+    <main>
+      <section class="omnibox-container">
+        <div class="omnibox-tabs">
+          <button id="tabFull" class="omni-tab active" type="button">Standard Audit</button>
+          <button id="tabActive" class="omni-tab pro-tab" type="button">Active DAST (Pro)</button>
+        </div>
+
+        <form id="scanForm" class="omnibox-form">
+          <div class="omnibox-wrapper">
+            <span class="omnibox-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </span>
+            <input id="targetUrl" type="text" class="omnibox-input" placeholder="Enter target domain (e.g., example.com)" spellcheck="false" autocomplete="off" required />
+            <button id="submitScanBtn" type="submit" class="omnibox-btn">Analyze Target</button>
+          </div>
+
+          <div class="omnibox-options">
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="ownershipConfirmed" checked required style="accent-color: var(--brand-cyan);" />
+              <span>I confirm authorization to scan this domain</span>
+            </label>
+            <label class="checkbox-label" id="publicFeedOption" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="listPublicly" checked style="accent-color: var(--brand-cyan);">
+              <span>List result in public recent scans</span>
+            </label>
+          </div>
+        </form>
+      </section>
+
+      <section id="results" class="results-area"></section>
+
       <div id="homepage-defaults">
-        <div class="scan-hub-card">
-          <h2 class="scan-title">What are we scanning today?</h2>
-          
-          <form id="scanForm">
-            <div class="scan-pill">
-              <span class="prefix">https://</span>
-              <input id="targetUrl" type="text" placeholder="example.com" spellcheck="false" autocomplete="off" required />
-              <button type="submit" id="submitScanBtn" class="scan-submit-btn">→</button>
-            </div>
-            <input type="checkbox" id="ownershipConfirmed" checked style="display:none;" />
-            <input type="checkbox" id="listPublicly" checked style="display:none;" />
-          </form>
-        </div>
-
-        <div class="options-grid">
-          <div class="option-card active" id="tabFull">
-            <div class="option-header">
-              <h3>Standard Audit</h3>
-              <div class="radio-circle"></div>
-            </div>
-            <p class="option-desc">Passive checks across TLS, HTTP headers, DNS email authentication, CORS and exposed files.</p>
-            <div class="tag-row">
-              <span class="tag">6 MODULES</span>
-              <span class="tag">~40 SEC</span>
-            </div>
+        <div class="bento-grid">
+          <div class="bento-card">
+            <div class="bento-icon">[RECON]</div>
+            <h3 class="bento-title">Passive Reconnaissance</h3>
+            <p class="bento-desc">Evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server runtime.</p>
           </div>
-
-          <div class="option-card" id="tabActive">
-            <div class="option-header">
-              <h3>Active DAST</h3>
-              <span class="pro-badge">PRO</span>
-            </div>
-            <p class="option-desc">Authenticated payload testing against live endpoints. Requires cryptographic domain verification.</p>
-            <div class="tag-row">
-              <span class="tag">NOT VERIFIED</span>
-            </div>
+          <div class="bento-card">
+            <div class="bento-icon">[DAST]</div>
+            <h3 class="bento-title">Active Exploitation Engine</h3>
+            <p class="bento-desc">Deploy authorized containerized payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
+          </div>
+          <div class="bento-card">
+            <div class="bento-icon">[A.I.]</div>
+            <h3 class="bento-title">Remediation Blueprints</h3>
+            <p class="bento-desc">Generate tailored, highly-specific mitigation code and architectural configuration snippets to secure detected vulnerabilities.</p>
           </div>
         </div>
       </div>
-
-      <!-- RESULTS INJECTION CONTAINER -->
-      <div id="results"></div>
-
     </main>
   </div>
 
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script src="/app.js"></script>
+  
   <script>
-    // Tab switching logic for the new card designs
-    let scanMode = 'full';
-    document.getElementById('tabFull').addEventListener('click', () => {
-      scanMode = 'full';
-      document.getElementById('tabFull').classList.add('active');
-      document.getElementById('tabActive').classList.remove('active');
-      document.getElementById('tabActive').querySelector('.radio-circle')?.remove();
-      if(!document.getElementById('tabFull').querySelector('.radio-circle')) {
-         document.getElementById('tabFull').querySelector('.option-header').innerHTML += '<div class="radio-circle"></div>';
-      }
-    });
-    
-    document.getElementById('tabActive').addEventListener('click', () => {
-      scanMode = 'active';
-      document.getElementById('tabActive').classList.add('active');
-      document.getElementById('tabFull').classList.remove('active');
-      document.getElementById('tabFull').querySelector('.radio-circle')?.remove();
-      if(!document.getElementById('tabActive').querySelector('.radio-circle')) {
-         document.getElementById('tabActive').querySelector('.option-header').innerHTML += '<div class="radio-circle"></div>';
-      }
-    });
-
     document.getElementById('scanForm').addEventListener('submit', () => {
-      document.getElementById('homepage-defaults').style.display = 'none';
+      const defaults = document.getElementById('homepage-defaults');
+      if (defaults) defaults.style.display = 'none';
     });
   </script>
 </body>
