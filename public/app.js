@@ -2,33 +2,34 @@
 document.addEventListener('DOMContentLoaded', () => {
   let scanMode = 'full';
 
-  const tabFull = document.getElementById('tabFull');
-  const tabActive = document.getElementById('tabActive');
+  const cardStandard = document.getElementById('cardStandard');
+  const cardActive = document.getElementById('cardActive');
   const publicFeedOption = document.getElementById('publicFeedOption');
   const scanForm = document.getElementById('scanForm');
   const targetUrlInput = document.getElementById('targetUrl');
   const submitScanBtn = document.getElementById('submitScanBtn');
   const resultsEl = document.getElementById('results');
 
-  function updateTabs(activeBtn) {
-    [tabFull, tabActive].forEach(b => b && b.classList.remove('active'));
-    activeBtn.classList.add('active');
-    
+  function updateTabs() {
     if (scanMode === 'active') {
-      submitScanBtn.textContent = 'Run Active DAST';
+      cardActive?.classList.add('active');
+      cardStandard?.classList.remove('active');
+      submitScanBtn.textContent = 'Deploy Active DAST';
       submitScanBtn.style.background = 'var(--brand-emerald)'; 
-      submitScanBtn.style.color = '#fff';
+      submitScanBtn.style.color = '#000';
       if(publicFeedOption) publicFeedOption.style.display = 'none';
     } else {
+      cardStandard?.classList.add('active');
+      cardActive?.classList.remove('active');
       submitScanBtn.textContent = 'Run Standard Audit';
       submitScanBtn.style.background = '#fff'; 
-      submitScanBtn.style.color = '#090d16';
+      submitScanBtn.style.color = '#000';
       if(publicFeedOption) publicFeedOption.style.display = 'inline-flex';
     }
   }
 
-  tabFull?.addEventListener('click', () => { scanMode = 'full'; updateTabs(tabFull); });
-  tabActive?.addEventListener('click', () => { scanMode = 'active'; updateTabs(tabActive); });
+  cardStandard?.addEventListener('click', () => { scanMode = 'full'; updateTabs(); });
+  cardActive?.addEventListener('click', () => { scanMode = 'active'; updateTabs(); });
 
   function normalizeTarget(input) { 
     let clean = input.trim(); 
@@ -45,6 +46,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!rawDomain) return;
 
+    // Hide UI elements when scan initiates
+    const defaults = document.getElementById('homepage-defaults');
+    const heading = document.querySelector('h2');
+    if (defaults) defaults.style.display = 'none';
+    if (heading) heading.style.display = 'none';
+
+    // Route to DAST Endpoint
     if (scanMode === 'active') {
       if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
       return window.showDnsVerificationModal(rawDomain, async () => {
@@ -64,13 +72,13 @@ document.addEventListener('DOMContentLoaded', () => {
           resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose);">${err.message}</div>`; 
         } finally { 
           submitScanBtn.disabled = false; 
-          submitScanBtn.textContent = 'Run Active DAST'; 
+          submitScanBtn.textContent = 'Deploy Active DAST'; 
         }
       });
     }
 
+    // Route to Standard Endpoint
     submitScanBtn.disabled = true; 
-    
     if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
     
     try {
