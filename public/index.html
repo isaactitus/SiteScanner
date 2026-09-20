@@ -98,36 +98,5 @@
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script src="/app.js"></script>
-  
-  <script>
-    // Handle Audit Card Selection
-    const cardStandard = document.getElementById('cardStandard');
-    const cardActive = document.getElementById('cardActive');
-    const submitBtn = document.getElementById('submitScanBtn');
-
-    cardStandard.addEventListener('click', () => {
-      cardStandard.classList.add('active');
-      cardActive.classList.remove('active');
-      submitBtn.textContent = 'Run Standard Audit';
-      submitBtn.style.background = '#fff';
-      submitBtn.style.color = '#000';
-    });
-
-    cardActive.addEventListener('click', () => {
-      cardActive.classList.add('active');
-      cardStandard.classList.remove('active');
-      submitBtn.textContent = 'Deploy Active DAST';
-      submitBtn.style.background = 'var(--brand-emerald)';
-      submitBtn.style.color = '#000';
-    });
-
-    // Hide cards when scanning starts
-    document.getElementById('scanForm').addEventListener('submit', () => {
-      const defaults = document.getElementById('homepage-defaults');
-      const heading = document.querySelector('h2');
-      if (defaults) defaults.style.display = 'none';
-      if (heading) heading.style.display = 'none';
-    });
-  </script>
 </body>
 </html>
