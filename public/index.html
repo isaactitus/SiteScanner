@@ -20,19 +20,18 @@
           <span class="nav-status-dot"></span> Engine Online
         </div>
         <div id="authNavContainer" style="position: relative;">
-          <button id="navSignInBtn" class="cta-button" style="padding: 6px 14px; font-size: 0.85rem;" type="button">Sign In</button>
+          <button id="navSignInBtn" class="cta-button" style="padding: 6px 20px; font-size: 0.85rem;" type="button">Sign In</button>
         </div>
       </div>
     </nav>
 
     <header class="hero-premium">
-      <div class="hero-badge">✨ SiteScanner Engine 2.0 is live</div>
-      <h1 class="hero-title-premium">Security intelligence,<br>simplified.</h1>
-      <p class="hero-subtitle-premium">Enterprise-grade passive reconnaissance, active DAST, and AI-driven remediation blueprints for modern web applications.</p>
+      <div class="hero-badge">[ SYSTEM STATUS: ENGINE 2.0 OPERATIONAL ]</div>
+      <h1 class="hero-title-premium">Enterprise Web<br>Application Security.</h1>
+      <p class="hero-subtitle-premium">Automated passive reconnaissance, dynamic application security testing (DAST), and precise remediation blueprints for modern infrastructure.</p>
     </header>
 
     <main>
-      <!-- Premium Omnibox Section -->
       <section class="omnibox-container">
         <div class="omnibox-tabs">
           <button id="tabFull" class="omni-tab active" type="button">Standard Audit</button>
@@ -44,62 +43,41 @@
             <span class="omnibox-icon">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             </span>
-            <input 
-              id="targetUrl" 
-              type="text" 
-              class="omnibox-input" 
-              placeholder="Enter target domain (e.g., alelken.in)" 
-              spellcheck="false" 
-              autocomplete="off" 
-              required 
-            />
+            <input id="targetUrl" type="text" class="omnibox-input" placeholder="Enter target domain (e.g., example.com)" spellcheck="false" autocomplete="off" required />
             <button id="submitScanBtn" type="submit" class="omnibox-btn">Analyze Target</button>
           </div>
 
           <div class="omnibox-options">
-            <label class="checkbox-label">
-              <input type="checkbox" id="ownershipConfirmed" checked required />
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="ownershipConfirmed" checked required style="accent-color: var(--brand-cyan);" />
               <span>I confirm authorization to scan this domain</span>
             </label>
-            <label class="checkbox-label" id="publicFeedOption">
-              <input type="checkbox" id="listPublicly" checked>
+            <label class="checkbox-label" id="publicFeedOption" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="listPublicly" checked style="accent-color: var(--brand-cyan);">
               <span>List result in public recent scans</span>
             </label>
           </div>
         </form>
       </section>
 
-      <!-- Results Area (Injected via JS) -->
       <section id="results" class="results-area"></section>
 
-      <!-- Default Homepage State: Bento Grid & Live Ticker -->
       <div id="homepage-defaults">
-        <!-- Live Threat Feed Ticker -->
-        <div class="feed-card" id="feedCard">
-          <span class="feed-title">Live Telemetry:</span>
-          <div class="feed-items" id="recentList">
-            <span style="color: var(--text-tertiary); font-size: 0.8rem;">Loading persistent feed...</span>
-          </div>
-        </div>
-
-        <!-- SaaS Feature Bento Box -->
         <div class="bento-grid">
           <div class="bento-card">
-            <div class="bento-icon" style="color: var(--brand-cyan); background: rgba(6,182,212,0.1);">🛡️</div>
+            <div class="bento-icon">[RECON]</div>
             <h3 class="bento-title">Passive Reconnaissance</h3>
-            <p class="bento-desc">Instantly evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server.</p>
+            <p class="bento-desc">Evaluate HTTP headers, SSL/TLS configurations, CORS policies, and identify exposed sensitive source files without touching the server runtime.</p>
           </div>
-          
-          <div class="bento-card bento-pro">
-            <div class="bento-icon" style="color: var(--brand-emerald); background: rgba(16,185,129,0.1);">⚔️</div>
-            <h3 class="bento-title">Active DAST Engine</h3>
-            <p class="bento-desc">Deploy authorized containerized exploitation payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
+          <div class="bento-card">
+            <div class="bento-icon">[DAST]</div>
+            <h3 class="bento-title">Active Exploitation Engine</h3>
+            <p class="bento-desc">Deploy authorized containerized payloads to uncover deep runtime vulnerabilities, SQLi, and XSS flaws via background workers.</p>
           </div>
-
-          <div class="bento-card bento-ai">
-            <div class="bento-icon" style="color: var(--brand-purple); background: rgba(139,92,246,0.1);">✨</div>
-            <h3 class="bento-title">AI Remediation Blueprints</h3>
-            <p class="bento-desc">Generate tailored, highly-specific mitigation code and configuration snippets powered by Google Gemini advanced language models.</p>
+          <div class="bento-card">
+            <div class="bento-icon">[A.I.]</div>
+            <h3 class="bento-title">Remediation Blueprints</h3>
+            <p class="bento-desc">Generate tailored, highly-specific mitigation code and architectural configuration snippets to secure detected vulnerabilities.</p>
           </div>
         </div>
       </div>
@@ -111,7 +89,6 @@
   <script src="/app.js"></script>
   
   <script>
-    // Hide default homepage elements when a scan starts
     document.getElementById('scanForm').addEventListener('submit', () => {
       const defaults = document.getElementById('homepage-defaults');
       if (defaults) defaults.style.display = 'none';

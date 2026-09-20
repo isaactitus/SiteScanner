@@ -18,18 +18,20 @@
     }
 
     .stat-block {
-      background: rgba(15, 23, 42, 0.4);
+      background: var(--surface);
       border: 1px solid var(--surface-border);
       border-radius: var(--radius-md);
       padding: 24px;
       margin-bottom: 16px;
       position: relative;
       overflow: hidden;
-      transition: border-color 0.2s;
+      transition: all 0.4s var(--ease-float);
     }
 
     .stat-block:hover {
       border-color: var(--surface-border-hover);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-float);
     }
 
     .stat-block::before {
@@ -54,47 +56,6 @@
       letter-spacing: -0.03em;
     }
 
-    /* iOS-Style Smooth Toggles */
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 46px;
-      height: 26px;
-    }
-    
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    
-    .toggle-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-color: rgba(255,255,255,0.1);
-      border: 1px solid var(--surface-border);
-      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
-      border-radius: 34px;
-    }
-    
-    .toggle-slider:before {
-      position: absolute;
-      content: "";
-      height: 20px; width: 20px;
-      left: 2px; bottom: 2px;
-      background-color: var(--text-secondary);
-      transition: .3s cubic-bezier(0.4, 0.0, 0.2, 1);
-      border-radius: 50%;
-    }
-    
-    .toggle-switch input:checked + .toggle-slider {
-      background-color: rgba(16, 185, 129, 0.2);
-      border-color: var(--brand-emerald);
-    }
-    
-    .toggle-switch input:checked + .toggle-slider:before {
-      transform: translateX(20px);
-      background-color: var(--brand-emerald);
-      box-shadow: 0 0 10px var(--brand-emerald);
-    }
-
     /* Monitor Row Transitions */
     .monitor-row {
       padding: 24px 32px;
@@ -102,10 +63,10 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      transition: background-color 0.3s ease, opacity 0.3s ease;
+      transition: background-color 0.3s var(--ease-float), opacity 0.3s var(--ease-float);
     }
     
-    .monitor-row:hover { background: rgba(255,255,255,0.02); }
+    .monitor-row:hover { background: var(--surface-subtle); }
     .monitor-row:last-child { border-bottom: none; }
     
     .monitor-row.inactive {
@@ -114,13 +75,13 @@
     }
     
     .monitor-title {
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       font-weight: 700;
       color: #fff;
       display: block;
       margin-bottom: 8px;
       font-family: var(--font-mono);
-      transition: color 0.3s ease;
+      transition: color 0.3s var(--ease-float);
     }
     
     .monitor-row.inactive .monitor-title {
@@ -130,7 +91,7 @@
   </style>
 </head>
 <body>
-  <div class="app-container" style="max-width: 1100px;">
+  <div class="app-container">
     <nav class="app-nav">
       <a href="/" class="nav-brand">
         <span class="nav-brand-badge"></span>
@@ -142,40 +103,40 @@
       </div>
     </nav>
 
-    <header style="margin-bottom: 40px;">
+    <header style="margin-bottom: 40px; animation: floatUpFade 0.6s var(--ease-float) forwards;">
       <h1 style="font-size: 2.5rem; font-weight: 800; color: #fff; margin-bottom: 8px; letter-spacing: -0.03em;">Command Center</h1>
-      <p style="color: var(--text-secondary); font-size: 1.05rem;">Manage your security posture, active telemetry monitors, and billing.</p>
+      <p style="color: var(--text-secondary); font-size: 1.05rem;">Manage infrastructure posture, automated telemetry monitors, and billing.</p>
     </header>
 
-    <main class="dashboard-grid">
+    <main class="dashboard-grid" style="animation: floatUpFade 0.8s var(--ease-float) 0.1s forwards; opacity: 0;">
       <aside>
-        <div class="card" style="padding: 0; background: transparent; border: none;">
+        <div style="padding: 0; background: transparent; border: none;">
           
           <div class="stat-block plan-block">
-            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Current Plan</span>
-            <div id="planStatusUi" style="margin-top: 12px;"></div>
+            <span style="font-size: 0.75rem; color: var(--text-secondary); font-family: var(--font-mono); letter-spacing: 0.05em; font-weight: 700;">[ SERVICE_PLAN ]</span>
+            <div id="planStatusUi" style="margin-top: 16px;"></div>
           </div>
 
           <div class="stat-block score-block">
-            <span style="font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Fleet Security Score</span>
+            <span style="font-size: 0.75rem; color: var(--text-secondary); font-family: var(--font-mono); letter-spacing: 0.05em; font-weight: 700;">[ FLEET_POSTURE ]</span>
             <div id="avgScoreDisplay" class="stat-value">--</div>
             <span style="font-size: 0.85rem; color: var(--text-tertiary);">Average across monitored targets</span>
           </div>
 
-          <button onclick="window.showBillingModal()" class="cta-button" style="width: 100%; background: rgba(15,23,42,0.6); color: #fff; border-color: var(--surface-border-hover);">Manage Billing</button>
+          <button onclick="window.showBillingModal()" class="cta-button" style="width: 100%; background: var(--surface-subtle); color: #fff; border-color: var(--surface-border);">Manage Billing</button>
         </div>
       </aside>
 
       <section>
-        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border-hover);">
-          <div style="background: rgba(15,23,42,0.8); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Automated Threat Monitors</h3>
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.1);" id="monitorCount">0 Active</span>
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--surface-border);">
+          <div style="background: var(--surface-subtle); padding: 20px 32px; border-bottom: 1px solid var(--surface-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 1.1rem; font-weight: 700; color: #fff;">Automated Threat Telemetry</h3>
+            <span style="font-size: 0.75rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-secondary); background: var(--bg); padding: 6px 12px; border-radius: 9999px; border: 1px solid var(--surface-border);" id="monitorCount">[ 0 ACTIVE ]</span>
           </div>
           
           <div id="monitorsList">
-            <div style="padding: 64px; text-align: center; color: var(--text-tertiary);">
-              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">Loading security telemetry...</span>
+            <div style="padding: 64px; text-align: center; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.85rem;">
+              <span style="display:inline-block; animation: pulse 2s infinite ease-in-out;">[ QUERYING_INFRASTRUCTURE... ]</span>
             </div>
           </div>
         </div>
@@ -212,16 +173,16 @@
         }
 
         planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">PRO TIER</span>
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(139,92,246,0.1); color: var(--brand-purple); border: 1px solid rgba(139,92,246,0.2); border-radius: 4px; font-weight: 800; font-family: var(--font-mono); font-size: 0.75rem; margin-bottom: 12px;">PRO_TIER</span>
           <div style="font-size: 0.9rem; color: var(--text-secondary);">Cycle renews in <strong style="color: #fff;">${daysRemaining} Days</strong></div>
-          <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
-            <div style="width: ${progressPercent}%; height: 100%; background: linear-gradient(90deg, var(--brand-purple), #c4b5fd); border-radius: 3px;"></div>
+          <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; margin-top: 12px; overflow: hidden;">
+            <div style="width: ${progressPercent}%; height: 100%; background: var(--brand-purple); border-radius: 2px;"></div>
           </div>`;
       } else {
         planUi.innerHTML = `
-          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px;">FREE TIER</span>
+          <span style="display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--surface-border); border-radius: 4px; font-weight: 800; font-family: var(--font-mono); font-size: 0.75rem; margin-bottom: 12px;">FREE_TIER</span>
           <div style="font-size: 0.9rem; color: var(--text-tertiary); line-height: 1.5;">Limited to manual passive scans.</div>
-          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 16px; padding: 10px; background: var(--brand-purple); border-color: var(--brand-purple);">Upgrade to Pro</button>
+          <button onclick="window.launchRazorpayCheckout('Unlimited Dashboards', () => window.location.reload())" class="cta-button" style="width: 100%; margin-top: 16px; padding: 10px; background: #fff; color: #000; border: none;">Authorize Upgrade</button>
         `;
       }
 
@@ -234,19 +195,18 @@
           const monitors = await res.json();
 
           if (monitors.length === 0) {
-            document.getElementById("monitorCount").textContent = "0 Active";
+            document.getElementById("monitorCount").textContent = "[ 0 ACTIVE ]";
             listEl.innerHTML = `
               <div style="padding: 80px 24px; text-align: center;">
-                <div style="width: 64px; height: 64px; border-radius: 16px; background: rgba(16,185,129,0.1); color: var(--brand-emerald); display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 20px; border: 1px solid rgba(16,185,129,0.2);">🛡️</div>
-                <strong style="color: #fff; display: block; font-size: 1.25rem; margin-bottom: 12px;">No targets monitored yet</strong>
-                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 320px; margin: 0 auto 32px; line-height: 1.6;">Run a standard baseline scan on any domain and click 'Enable Alerts' to establish telemetry.</p>
-                <a href="/" class="cta-button" style="display: inline-flex; width: auto; background: #fff; color: #090d16;">Scan a Target Domain</a>
+                <strong style="color: #fff; display: block; font-size: 1.1rem; margin-bottom: 12px; font-family: var(--font-mono);">[ TELEMETRY_INACTIVE ]</strong>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; max-width: 360px; margin: 0 auto 32px; line-height: 1.6;">Run a standard baseline scan on any domain and configure alerts to establish continuous infrastructure monitoring.</p>
+                <a href="/" class="cta-button" style="display: inline-flex; width: auto; background: #fff; color: #000;">Scan Target Infrastructure</a>
               </div>`;
             return;
           }
 
           const activeMonitors = monitors.filter(m => m.is_active);
-          document.getElementById("monitorCount").textContent = `${activeMonitors.length} Active`;
+          document.getElementById("monitorCount").textContent = `[ ${activeMonitors.length} ACTIVE ]`;
           
           if (activeMonitors.length > 0) {
             const validScores = activeMonitors.map(m => m.last_score).filter(s => s !== null);
@@ -255,7 +215,6 @@
               const avgEl = document.getElementById("avgScoreDisplay");
               avgEl.textContent = avg;
               avgEl.style.color = avg >= 75 ? "var(--brand-emerald)" : avg >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
-              avgEl.style.textShadow = `0 0 20px ${avgEl.style.color}`;
             }
           }
 
@@ -267,22 +226,22 @@
             <div class="${rowClass}" id="monitor-row-${m.id}">
               <div>
                 <span class="monitor-title" id="title-${m.id}">${m.hostname}</span>
-                <div style="font-size: 0.9rem; color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
-                  <span>Last Score: <strong style="color: ${m.last_score ? scoreColor : 'var(--text-tertiary)'}">${m.last_score || 'Pending Scan'}</strong></span>
+                <div style="font-size: 0.85rem; font-family: var(--font-mono); color: var(--text-secondary); display: flex; gap: 16px; align-items: center;">
+                  <span>SCORE: <strong style="color: ${m.last_score ? scoreColor : 'var(--text-tertiary)'}">${m.last_score || 'PENDING'}</strong></span>
                   <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--surface-border-hover);"></span>
-                  <span>Alert Threshold: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
+                  <span>THRESHOLD: <strong style="color: #cbd5e1;">&lt; ${m.alert_threshold}</strong></span>
                 </div>
               </div>
 
               <div style="display: flex; align-items: center; gap: 24px;">
-                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.9rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px;">View Report <span style="font-size: 1.1rem;">→</span></a>
+                <a href="/report/${encodeURIComponent(m.hostname)}" style="font-size: 0.85rem; color: var(--brand-cyan); text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 6px; font-family: var(--font-mono);">[ DIAGNOSTICS ]</a>
                 
                 <label class="toggle-switch">
                   <input type="checkbox" class="optimistic-toggle" data-id="${m.id}" data-active="${m.is_active ? '1' : '0'}" ${m.is_active ? 'checked' : ''}>
                   <div class="toggle-slider"></div>
                 </label>
 
-                <button class="delete-monitor-btn" data-id="${m.id}" style="background: transparent; border: none; color: var(--text-tertiary); cursor: pointer; font-size: 1.2rem; transition: color 0.2s ease; padding: 4px;" title="Remove Target" onmouseover="this.style.color='var(--brand-rose)'" onmouseout="this.style.color='var(--text-tertiary)'">🗑️</button>
+                <button class="delete-monitor-btn" data-id="${m.id}" style="background: transparent; border: 1px solid transparent; color: var(--text-tertiary); cursor: pointer; font-size: 0.75rem; font-family: var(--font-mono); font-weight: 700; transition: all 0.2s ease; padding: 6px 10px; border-radius: 4px;" title="Remove Target" onmouseover="this.style.color='var(--brand-rose)'; this.style.borderColor='rgba(251,113,133,0.3)'; this.style.background='rgba(251,113,133,0.1)';" onmouseout="this.style.color='var(--text-tertiary)'; this.style.borderColor='transparent'; this.style.background='transparent';">[ DELETE ]</button>
               </div>
             </div>`;
           }).join("");
@@ -294,18 +253,15 @@
               const id = e.target.getAttribute('data-id');
               const hostname = document.getElementById(`title-${id}`).textContent.trim();
               
-              // Remove existing modal if it somehow got stuck
               if (document.getElementById("deleteModal")) document.getElementById("deleteModal").remove();
               
-              // Inject the custom premium warning modal
               const modalHtml = `
-                <div id="deleteModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
-                  <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
-                    <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🗑️</span>
-                    <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Delete Monitor?</h3>
-                    <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">Are you sure you want to permanently remove <strong>${hostname}</strong> from your alerts? This will immediately halt all background scans and free up a dashboard slot.</p>
-                    <div style="display:flex; gap: 12px;">
-                      <button id="confirmDeleteBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Delete Target</button>
+                <div id="deleteModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);">
+                  <div class="card" style="max-width:440px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;">
+                    <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Delete Infrastructure Monitor?</h3>
+                    <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;">Are you sure you want to permanently remove <strong>${hostname}</strong> from your alerts? This will immediately halt all background scans.</p>
+                    <div style="display:flex; gap: 16px;">
+                      <button id="confirmDeleteBtn" class="cta-button" style="background:var(--brand-rose); color:#000; border-color:var(--brand-rose); flex:1;">Delete</button>
                       <button id="cancelDeleteBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
                     </div>
                   </div>
@@ -314,16 +270,14 @@
               
               document.body.insertAdjacentHTML("beforeend", modalHtml);
               
-              // Handle Cancel
               document.getElementById("cancelDeleteBtn").onclick = () => {
                 document.getElementById("deleteModal").remove();
               };
               
-              // Handle Confirm Delete
               document.getElementById("confirmDeleteBtn").onclick = async () => {
                 const confirmBtn = document.getElementById("confirmDeleteBtn");
                 confirmBtn.disabled = true;
-                confirmBtn.textContent = "Deleting...";
+                confirmBtn.textContent = "Executing...";
                 
                 try {
                   const res = await fetch(`/api/monitors/${id}`, { method: 'DELETE' });
@@ -331,15 +285,14 @@
                   if (!res.ok || data.error) throw new Error(data.error || "Delete failed");
                   
                   document.getElementById("deleteModal").remove();
-                  loadMonitors(); // Smoothly reload the UI to remove the row
+                  loadMonitors(); 
                   
-                  // Instantly update the Active counter
                   const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
-                  document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+                  document.getElementById("monitorCount").textContent = `[ ${activeCount} ACTIVE ]`;
                 } catch (err) {
                   alert("Failed to delete: " + err.message);
                   confirmBtn.disabled = false;
-                  confirmBtn.textContent = "Delete Target";
+                  confirmBtn.textContent = "Delete";
                 }
               };
             });
@@ -358,13 +311,12 @@
               if (isCurrentlyActive) {
                 if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
                 const modalHtml = `
-                  <div id="disableModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
-                    <div class="card" style="max-width:400px; width:100%; border:1px solid rgba(244,63,94,0.4); text-align:center; padding:32px; box-shadow: 0 10px 30px rgba(244,63,94,0.2);">
-                      <span style="font-size: 2.5rem; display: block; margin-bottom: 16px;">🔕</span>
-                      <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:8px;">Disable Alerts?</h3>
-                      <p style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin-bottom:24px;">If you disable alerts, you cannot enable them again for <strong>${hostname}</strong> for the next 24 hours. Do you wish to continue?</p>
-                      <div style="display:flex; gap: 12px;">
-                        <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Continue</button>
+                  <div id="disableModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);">
+                    <div class="card" style="max-width:440px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;">
+                      <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Halt Telemetry?</h3>
+                      <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;">Halting alerts initiates a strict 24-hour system cooldown for <strong>${hostname}</strong>. Do you wish to continue?</p>
+                      <div style="display:flex; gap: 16px;">
+                        <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); color:#000; border-color:var(--brand-rose); flex:1;">Halt Telemetry</button>
                         <button id="cancelDisableBtn" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel</button>
                       </div>
                     </div>
@@ -404,7 +356,7 @@
               checkboxEl.checked = willBeActive;
 
               const activeCount = document.querySelectorAll('.optimistic-toggle[data-active="1"]').length;
-              document.getElementById("monitorCount").textContent = `${activeCount} Active`;
+              document.getElementById("monitorCount").textContent = `[ ${activeCount} ACTIVE ]`;
 
             } catch (err) {
               alert(err.message);
@@ -416,7 +368,7 @@
           }
 
         } catch (err) {
-          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center;">Failed to load monitors: ${err.message}</div>`;
+          listEl.innerHTML = `<div style="padding: 24px; color: var(--brand-rose); text-align: center; font-family: var(--font-mono);">[ ERROR: ${err.message} ]</div>`;
         }
       }
     });
@@ -434,14 +386,14 @@
       }
       
       const modalHtml = `
-        <div id="billingModal" style="position:fixed; inset:0; background:rgba(4, 7, 15, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px;">
-          <div class="card" style="max-width:480px; width:100%; border:1px solid rgba(139,92,246,0.4); box-shadow:0 0 40px -10px rgba(139,92,246,0.3); padding:32px;">
+        <div id="billingModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);">
+          <div class="card" style="max-width:480px; width:100%; border:1px solid var(--surface-border); padding:40px 32px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
               <h3 style="color:#fff; font-size:1.4rem; font-weight:800; letter-spacing: -0.02em;">Billing Management</h3>
-              <span style="padding:4px 10px; background:rgba(16,185,129,0.15); color:var(--brand-emerald); border-radius:6px; font-size:0.75rem; font-weight:700; border:1px solid rgba(16,185,129,0.3);">ACTIVE</span>
+              <span style="padding:4px 10px; background:rgba(52,211,153,0.1); color:var(--brand-emerald); border-radius:4px; font-size:0.75rem; font-weight:800; font-family: var(--font-mono); border:1px solid rgba(52,211,153,0.2);">[ ACTIVE ]</span>
             </div>
             
-            <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 24px;">
+            <div style="background: var(--surface-subtle); padding: 24px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 24px;">
               <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px;">
                 <span style="color: var(--text-tertiary); font-size: 0.9rem;">Current Plan</span>
                 <span style="color: #fff; font-weight: 700; font-size: 0.9rem;">SiteScanner PRO</span>
@@ -458,8 +410,8 @@
 
             <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:28px;">To update your payment method or cancel your subscription, please use the secure Razorpay customer portal linked to your account.</p>
             
-            <div style="display:flex; gap: 12px;">
-              <button id="portalBtn" class="cta-button" style="background:var(--brand-purple); border-color:var(--brand-purple); flex:1; font-weight:700;">Customer Portal</button>
+            <div style="display:flex; gap: 16px;">
+              <button id="portalBtn" class="cta-button" style="background:#fff; color:#000; border:none; flex:1; font-weight:700;">Customer Portal</button>
               <button id="closeBillingModal" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Close</button>
             </div>
           </div>
