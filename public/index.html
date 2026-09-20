@@ -29,7 +29,12 @@
     <main style="margin-top: 10vh;">
       <section class="omnibox-container">
         
-        <form id="scanForm" class="omnibox-form">
+        <!-- Premium Anchor Text -->
+        <h2 style="text-align: center; font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; margin-bottom: 32px; opacity: 0; animation: floatUpFade 0.8s var(--ease-float) forwards;">
+          What are we scanning today?
+        </h2>
+
+        <form id="scanForm" class="omnibox-form" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.1s forwards;">
           <div class="omnibox-wrapper">
             <span class="omnibox-icon">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -59,7 +64,7 @@
         </form>
 
         <!-- New Audit Selection Cards -->
-        <div id="homepage-defaults" class="audit-type-grid">
+        <div id="homepage-defaults" class="audit-type-grid" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.2s forwards;">
           
           <div class="audit-card active" id="cardStandard">
             <div class="audit-card-header">
@@ -119,7 +124,9 @@
     // Hide cards when scanning starts
     document.getElementById('scanForm').addEventListener('submit', () => {
       const defaults = document.getElementById('homepage-defaults');
+      const heading = document.querySelector('h2');
       if (defaults) defaults.style.display = 'none';
+      if (heading) heading.style.display = 'none';
     });
   </script>
 </body>
