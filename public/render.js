@@ -127,9 +127,13 @@ window.showDnsVerificationModal = async function(hostname, onSuccess) {
 
 function renderResults(data, targetId = "results") {
   const resultsEl = document.getElementById(targetId); if (!resultsEl) return;
-  const { raw, hostname, score, grade, previousScan } = data; const isGuest = !currentUser; const isPro = currentUser && currentUser.is_pro;
+  const { raw, hostname, score, grade, previousScan } = data; 
+  const isGuest = !currentUser; 
+  const isPro = currentUser && currentUser.is_pro;
+  
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
-  const circumference = 2 * Math.PI * 40; const offset = circumference - (score / 100) * circumference;
+  const circumference = 2 * Math.PI * 40; 
+  const offset = circumference - (score / 100) * circumference;
 
   let critical = 0, warning = 0, passed = 0;
   
@@ -151,6 +155,75 @@ function renderResults(data, targetId = "results") {
 
   if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
 
+  // -------------------------------------------------------------
+  // INTELLIGENCE SIDEBAR PARSING (DETECTED STACK & PROFILE)
+  // -------------------------------------------------------------
+  const issuer = raw.tls?.issuer || "Unknown";
+  const expiry = raw.tls?.daysUntilExpiry ? `${raw.tls.daysUntilExpiry} days` : "Invalid";
+  const serverHeader = raw.headers?.server || "Hidden";
+  
+  const stack = [];
+  const srvLower = serverHeader.toLowerCase();
+  const poweredBy = (raw.headers?.['x-powered-by'] || "").toLowerCase();
+  
+  if (srvLower.includes('cloudflare')) stack.push('Cloudflare');
+  if (srvLower.includes('nginx')) stack.push('Nginx');
+  if (srvLower.includes('apache')) stack.push('Apache');
+  if (raw.headers?.['x-vercel-id']) stack.push('Vercel Edge');
+  if (poweredBy.includes('next')) stack.push('Next.js');
+  if (poweredBy.includes('php')) stack.push('PHP');
+  if (poweredBy.includes('express')) stack.push('Express');
+  if (raw.headers?.['via']?.toLowerCase().includes('aws')) stack.push('AWS CloudFront');
+  if (stack.length === 0) stack.push('Standard HTTP');
+
+  const stackHtml = stack.map(tech => `<span style="font-family: var(--font-sans); font-size: 0.85rem; color: var(--text-primary); background: var(--bg); border: 1px solid var(--surface-border); padding: 6px 12px; border-radius: 8px; font-weight: 500;">${tech}</span>`).join('');
+
+  const prevScoreHtml = previousScan 
+    ? `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><div style="font-family: var(--font-serif); font-weight: 700; font-size: 1.25rem; color: #fff;"><span style="color: ${previousScan.score >= 75 ? 'var(--brand-emerald)' : previousScan.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}; margin-right: 8px; font-size: 1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem; color:var(--text-tertiary);">/100</span></div></div>`
+    : `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><span style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-secondary);">No prior data</span></div>`;
+
+  const sidebarHtml = `
+    <!-- Box 1: Site Profile -->
+    <div class="card" style="padding: 32px 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em;">SITE PROFILE</span>
+        <div style="display: flex; align-items: center; gap: 6px; color: var(--brand-emerald); font-weight: 700; font-size: 0.75rem; font-family: var(--font-mono);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--brand-emerald); box-shadow: 0 0 8px var(--brand-emerald);"></span> LIVE</div>
+      </div>
+      <h3 style="font-family: var(--font-serif); font-size: 1.8rem; color: #fff; margin-bottom: 32px; word-break: break-all;">${hostname}</h3>
+      
+      <div style="display: flex; flex-direction: column; gap: 16px; font-size: 0.95rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
+          <span style="color: var(--text-tertiary);">Hosting</span>
+          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
+          <span style="color: var(--text-tertiary);">TLS issuer</span>
+          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
+          <span style="color: var(--text-tertiary);">Expires in</span>
+          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${expiry}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-tertiary);">Server</span>
+          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Box 2: Detected Stack -->
+    <div class="card" style="padding: 32px 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+      <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em; display: block; margin-bottom: 24px;">DETECTED STACK</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        ${stackHtml}
+      </div>
+      ${prevScoreHtml}
+    </div>
+  `;
+
+  // -------------------------------------------------------------
+  // MAIN REPORT AREA
+  // -------------------------------------------------------------
   let quickStatusHtml = '';
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
   
@@ -162,16 +235,16 @@ function renderResults(data, targetId = "results") {
     quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-emerald); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: #fff; font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: SECURE ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">No critical exploits detected. Perimeter security policies are strictly enforced.</span></div></div>`;
   }
 
-  let html = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:12px;"><span>${hostname}</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:9999px; font-family:var(--font-mono); font-weight:700;">PRO_UNLOCKED</span>' : ""}</div><div style="margin-top: 8px; font-size: 1rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.25rem; margin-left: 6px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.6;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
+  let mainHtml = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:12px;"><span>Security Rating</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:9999px; font-family:var(--font-mono); font-weight:700;">PRO_UNLOCKED</span>' : ""}</div><div style="margin-top: 8px; font-size: 1rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.25rem; margin-left: 6px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.6;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
-    html += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color:#fff; font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
+    mainHtml += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color:#fff; font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
       if (alerts.length === 0) {
-        html += `<div class="card result-card" data-severity="passed" style="border-left: 4px solid var(--brand-emerald); margin-bottom: 32px;"><strong style="color:var(--text-primary); display:block; font-size: 1.05rem;">Zero Runtime Vulnerabilities Detected</strong><p style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 6px;">Active exploitation payload execution returned clear.</p></div>`;
+        mainHtml += `<div class="card result-card" data-severity="passed" style="border-left: 4px solid var(--brand-emerald); margin-bottom: 32px;"><strong style="color:var(--text-primary); display:block; font-size: 1.05rem;">Zero Runtime Vulnerabilities Detected</strong><p style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 6px;">Active exploitation payload execution returned clear.</p></div>`;
       } else {
-        html += `<h4 style="margin: 40px 0 20px; font-size: 1.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Output</h4>`;
+        mainHtml += `<h4 style="margin: 40px 0 20px; font-size: 1.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Output</h4>`;
         alerts.forEach(alert => {
           let riskColor = "var(--text-secondary)";
           let riskBg = "var(--surface-subtle)";
@@ -184,63 +257,74 @@ function renderResults(data, targetId = "results") {
           const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
           const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
 
-          html += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 24px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;"><strong style="color: #fff; font-size: 1.05rem;">${alert.name}</strong><span style="font-family: var(--font-mono); font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">[${riskText}]</span></div><div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">${cleanDesc}</div><div style="background: var(--surface-subtle); padding: 16px 20px; border-radius: var(--radius-md); font-size: 0.9rem; border: 1px solid var(--surface-border);"><strong style="color: #fff; font-family: var(--font-mono); display: block; margin-bottom: 8px; font-size: 0.8rem; letter-spacing: 0.05em;">REQUIREMENT_RESOLUTION</strong><span style="color: var(--text-secondary); line-height: 1.6; display: block;">${cleanSol}</span></div></div>`;
+          mainHtml += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 24px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;"><strong style="color: #fff; font-size: 1.05rem;">${alert.name}</strong><span style="font-family: var(--font-mono); font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">[${riskText}]</span></div><div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">${cleanDesc}</div><div style="background: var(--surface-subtle); padding: 16px 20px; border-radius: var(--radius-md); font-size: 0.9rem; border: 1px solid var(--surface-border);"><strong style="color: #fff; font-family: var(--font-mono); display: block; margin-bottom: 8px; font-size: 0.8rem; letter-spacing: 0.05em;">REQUIREMENT_RESOLUTION</strong><span style="color: var(--text-secondary); line-height: 1.6; display: block;">${cleanSol}</span></div></div>`;
         });
       }
     }
   }
 
   const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
-  html += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">SSL/TLS Transport Encryption</strong>`;
-  if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; html += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono); color: var(--text-secondary);">${raw.tls.issuer}</span></div>`; } else html += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
-  html += `</div>`;
+  mainHtml += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">SSL/TLS Transport Encryption</strong>`;
+  if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; mainHtml += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono); color: var(--text-secondary);">${raw.tls.issuer}</span></div>`; } else mainHtml += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
+  mainHtml += `</div>`;
 
   const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
-  html += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">HTTP Hardening Headers</strong>`;
-  (raw.headers?.missing || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
-  (raw.headers?.present || []).forEach(h => html += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
-  html += `</div>`;
+  mainHtml += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">HTTP Hardening Headers</strong>`;
+  (raw.headers?.missing || []).forEach(h => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
+  (raw.headers?.present || []).forEach(h => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
+  mainHtml += `</div>`;
 
   const hasExposed = (raw.exposedFiles || []).length > 0;
-  html += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Public File Leakage</strong>`;
-  if (isGuest && hasExposed) html += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: var(--surface); border: 1px solid var(--surface-border); color: #fff; padding: 10px 24px; max-width: 200px;">Sign In to View</button></div>`;
-  else if (!raw.exposedFiles || raw.exposedFiles.length === 0) html += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
-  else raw.exposedFiles.forEach(f => html += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
-  html += `</div>`;
+  mainHtml += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Public File Leakage</strong>`;
+  if (isGuest && hasExposed) mainHtml += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: var(--surface); border: 1px solid var(--surface-border); color: #fff; padding: 10px 24px; max-width: 200px;">Sign In to View</button></div>`;
+  else if (!raw.exposedFiles || raw.exposedFiles.length === 0) mainHtml += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
+  else raw.exposedFiles.forEach(f => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
+  mainHtml += `</div>`;
 
   const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
-  html += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Email Spoofing Protection</strong>`;
+  mainHtml += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Email Spoofing Protection</strong>`;
   if (raw.emailAuth?.isSharedHost) {
-      html += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
+      mainHtml += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
   } else {
-      html += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
-      html += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
+      mainHtml += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
+      mainHtml += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
   }
-  html += `</div>`;
+  mainHtml += `</div>`;
 
   if (raw.cookies?.hasCookies) {
       const cookieSev = badCookies.length > 0 ? "warning" : "passed";
-      html += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Session & Cookie Security</strong>`;
+      mainHtml += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Session & Cookie Security</strong>`;
       if (badCookies.length === 0) {
-           html += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
+           mainHtml += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
       } else {
-           badCookies.forEach(c => html += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
+           badCookies.forEach(c => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
       }
-      html += `</div>`;
+      mainHtml += `</div>`;
   }
 
   const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
-  html += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Cross-Origin Resource Sharing (CORS)</strong>`;
-  if (raw.cors?.dangerousCombo) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
-  else if (raw.cors?.wildcardOpen) html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
-  else html += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
-  html += `</div>`;
+  mainHtml += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Cross-Origin Resource Sharing (CORS)</strong>`;
+  if (raw.cors?.dangerousCombo) mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
+  else if (raw.cors?.wildcardOpen) mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
+  else mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
+  mainHtml += `</div>`;
 
-  if (isGuest) html += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: #fff; margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: #fff; color: #000; border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
-  else html += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: #fff; color: #000; border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
+  if (isGuest) mainHtml += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: #fff; margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: #fff; color: #000; border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
+  else mainHtml += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: #fff; color: #000; border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
   
-  resultsEl.innerHTML = html;
+  // Assemble final flex layout
+  resultsEl.innerHTML = `
+    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+      <div style="flex: 1 1 60%; min-width: 300px; display: flex; flex-direction: column; gap: 16px;">
+        ${mainHtml}
+      </div>
+      <div style="flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 24px;">
+        ${sidebarHtml}
+      </div>
+    </div>
+  `;
 
+  // Attach Event Listeners
   let activeFilter = null;
   const filterCards = (severity) => {
     const cards = document.querySelectorAll(".result-card");
