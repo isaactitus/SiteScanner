@@ -33,7 +33,7 @@
   <div class="app-container" style="max-width: 900px;">
 
     <header style="margin-bottom: 32px;">
-      <h1 style="font-size: 2.2rem; font-weight: 800; color: #fff; margin-bottom: 8px;">Audit History</h1>
+      <h1 style="font-size: 2.2rem; font-weight: 800; color: var(--text-hero); margin-bottom: 8px;">Audit History</h1>
       <p style="color: var(--text-secondary);">A private log of all security assessments executed by your account.</p>
     </header>
 
@@ -79,7 +79,7 @@
           
           return `
             <a href="/report/${encodeURIComponent(s.hostname)}" class="history-row">
-              <span style="color: #fff; font-weight: 600; font-family: var(--font-mono);">${s.hostname}</span>
+              <span style="color: var(--text-hero); font-weight: 600; font-family: var(--font-mono);">${s.hostname}</span>
               <span style="color: ${scoreColor}; font-weight: 700;">${s.score} / 100</span>
               <span style="color: ${scoreColor}; font-weight: 800;">${s.grade}</span>
               <div style="text-align: right; display: flex; flex-direction: column; gap: 2px;">

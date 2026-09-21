@@ -103,7 +103,7 @@ window.updateHeaderAuthUI = async function() {
         <strong style="color:var(--text-primary);">${scansLeft} / 5</strong>
       </div>
       <div class="site-header-divider"></div>
-      <button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:var(--brand-emerald); color:#000; border:none; padding:4px 12px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem; font-weight:bold; cursor:pointer; text-transform:uppercase; transition:opacity 0.2s;">
+      <button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:var(--brand-emerald); color: var(--bg-inverse); border:none; padding:4px 12px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem; font-weight:bold; cursor:pointer; text-transform:uppercase; transition:opacity 0.2s;">
         Upgrade to Pro
       </button>
     `;
@@ -263,7 +263,7 @@ function updateDockAuth() {
       slot.innerHTML = `<img src="${avatarSrc}" alt="Avatar" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:2px solid ${badgeColor};display:block;" />`;
     } else {
       const initial = (currentUser.name || 'U')[0].toUpperCase();
-      slot.innerHTML = `<span style="width:30px;height:30px;border-radius:50%;background:var(--surface-subtle);border:2px solid ${badgeColor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:#fff;">${initial}</span>`;
+      slot.innerHTML = `<span style="width:30px;height:30px;border-radius:50%;background:var(--surface-subtle);border:2px solid ${badgeColor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color: var(--text-hero);">${initial}</span>`;
     }
     slot.style.background = `rgba(${isPro ? '52,211,153' : '129,140,248'},0.1)`;
     slot.setAttribute('data-tip', currentUser.name ? currentUser.name.split(' ')[0] : 'Account');
@@ -316,7 +316,7 @@ function updateNavAuthUI() {
 
 function showSignInModal() {
   if (document.getElementById("authModal")) document.getElementById("authModal").remove();
-  const modalHtml = `<div id="authModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:400px; width:100%; text-align:center; padding:40px 32px;"><h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:12px;">Authentication Required</h3><p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:32px;">Log in with Google to synchronize your enterprise audits, remediation plans, and custom telemetry monitors.</p><div id="googleBtnContainer" style="display:flex; justify-content:center; margin-bottom:24px;"></div><button id="closeAuthModal" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding: 8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Cancel</button></div></div>`;
+  const modalHtml = `<div id="authModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:400px; width:100%; text-align:center; padding:40px 32px;"><h3 style="color: var(--text-hero); font-size:1.35rem; font-weight:700; margin-bottom:12px;">Authentication Required</h3><p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:32px;">Log in with Google to synchronize your enterprise audits, remediation plans, and custom telemetry monitors.</p><div id="googleBtnContainer" style="display:flex; justify-content:center; margin-bottom:24px;"></div><button id="closeAuthModal" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding: 8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Cancel</button></div></div>`;
   document.body.insertAdjacentHTML("beforeend", modalHtml); document.getElementById("closeAuthModal").onclick = () => document.getElementById("authModal").remove();
   if (window.google) { window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: async (res) => { try { const data = await (await fetch("/api/auth/google", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: res.credential }) })).json(); if (data.success) { currentUser = data.user; document.getElementById("authModal")?.remove(); updateNavAuthUI(); location.reload(); } else alert("Authentication failed: " + data.error); } catch (err) { alert("Network error during authentication."); } } }); window.google.accounts.id.renderButton(document.getElementById("googleBtnContainer"), { theme: "filled_black", size: "large", width: 280, shape: "pill" }); }
 }
@@ -325,7 +325,7 @@ window.launchRazorpayCheckout = function(featureName, onSuccess) {
   if (!currentUser) return showSignInModal();
   if (document.getElementById("paywallModal")) document.getElementById("paywallModal").remove();
   if (typeof window.Razorpay === "undefined") return alert("Payment system initializing. Please try again.");
-  document.body.insertAdjacentHTML("beforeend", `<div id="paywallModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:480px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--brand-emerald); font-size: 0.8rem; letter-spacing: 0.05em; display: block; margin-bottom: 16px;">[ PRO TIER REQUIRED ]</span><h3 style="color:#fff; font-size:1.5rem; font-weight:800; margin-bottom:12px; letter-spacing: -0.02em;">Upgrade Required</h3><p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;"><strong>${featureName}</strong> is restricted. Upgrade to provision unlimited daily scans, automated infrastructure monitoring, and advanced remediation planning.</p><button id="paywallCheckoutBtn" class="cta-button" style="margin-bottom:16px; font-weight:700; background: #fff; color: #000; border: none;">Authorize Upgrade (₹499)</button><button id="paywallCloseBtn" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding:8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Dismiss</button></div></div>`);
+  document.body.insertAdjacentHTML("beforeend", `<div id="paywallModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:480px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--brand-emerald); font-size: 0.8rem; letter-spacing: 0.05em; display: block; margin-bottom: 16px;">[ PRO TIER REQUIRED ]</span><h3 style="color: var(--text-hero); font-size:1.5rem; font-weight:800; margin-bottom:12px; letter-spacing: -0.02em;">Upgrade Required</h3><p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;"><strong>${featureName}</strong> is restricted. Upgrade to provision unlimited daily scans, automated infrastructure monitoring, and advanced remediation planning.</p><button id="paywallCheckoutBtn" class="cta-button" style="margin-bottom:16px; font-weight:700; background: var(--text-hero); color: var(--bg-inverse); border: none;">Authorize Upgrade (₹499)</button><button id="paywallCloseBtn" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding:8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Dismiss</button></div></div>`);
   document.getElementById("paywallCloseBtn").onclick = () => document.getElementById("paywallModal").remove();
   document.getElementById("paywallCheckoutBtn").onclick = async () => {
     const btn = document.getElementById("paywallCheckoutBtn"); btn.disabled = true; btn.textContent = "Provisioning Order...";
@@ -349,24 +349,24 @@ window.showDnsVerificationModal = async function(hostname, onSuccess) {
   const modalHtml = `
     <div id="dnsModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; overflow-y: auto; animation: floatUpFade 0.3s var(--ease-float);">
       <div class="card" style="max-width:600px; width:100%; border:1px solid var(--surface-border); text-align:left; padding:40px; margin-top: auto; margin-bottom: auto;">
-        <h3 style="color:#fff; font-size:1.4rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Domain Authorization Required</h3>
+        <h3 style="color: var(--text-hero); font-size:1.4rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Domain Authorization Required</h3>
         <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:24px;">To execute dynamic application security testing (DAST), cryptographic proof of ownership for <strong>${hostname}</strong> is required. Deploy one of the following verification records.</p>
         
         <div style="background: var(--surface-subtle); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 16px;">
-          <strong style="color: #fff; font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_01: DNS TXT RECORD ]</strong>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Type</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px;">TXT</div></div>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Host / Name</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px;">@ <span style="color:var(--text-tertiary); font-size:0.8rem;">(or ${hostname})</span></div></div>
+          <strong style="color: var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_01: DNS TXT RECORD ]</strong>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Type</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px;">TXT</div></div>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Host / Name</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px;">@ <span style="color:var(--text-tertiary); font-size:0.8rem;">(or ${hostname})</span></div></div>
           <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Value / Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid rgba(255,255,255,0.1);">${tokenData.token}</div></div>
         </div>
 
         <div style="background: var(--surface-subtle); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 32px;">
-          <strong style="color: #fff; font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_02: HTTP STATIC FILE ]</strong>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Path</span><div style="color:#fff; font-family:var(--font-mono); margin-top:2px; word-break: break-all;">https://${hostname}/.well-known/sitescanner-verification.txt</div></div>
+          <strong style="color: var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_02: HTTP STATIC FILE ]</strong>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Path</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px; word-break: break-all;">https://${hostname}/.well-known/sitescanner-verification.txt</div></div>
           <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid rgba(255,255,255,0.1);">${tokenData.token}</div></div>
         </div>
 
         <div style="display:flex; gap: 16px;">
-          <button id="verifyDnsBtn" class="cta-button" style="background:#fff; color:#000; border:none; flex:1;">Execute Verification</button>
+          <button id="verifyDnsBtn" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border:none; flex:1;">Execute Verification</button>
           <button id="closeDnsModalBtn" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel Deployment</button>
         </div>
         <div id="dnsErrorMsg" style="color: var(--brand-rose); font-family: var(--font-mono); font-size: 0.85rem; margin-top: 16px; text-align: center; display: none;"></div>
@@ -414,7 +414,7 @@ window.renderIntelCards = function(data) {
 
   const gradeColor = score >= 75 ? 'var(--brand-emerald)' : score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
   const prevScoreHtml = previousScan
-    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><div style="font-weight:700;font-size:1.25rem;color:#fff;"><span style="color:${previousScan.score>=75?'var(--brand-emerald)':previousScan.score>=40?'var(--brand-amber)':'var(--brand-rose)'};margin-right:8px;font-size:1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem;color:var(--text-tertiary);">/100</span></div></div>`
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><div style="font-weight:700;font-size:1.25rem;color: var(--text-hero);"><span style="color:${previousScan.score>=75?'var(--brand-emerald)':previousScan.score>=40?'var(--brand-amber)':'var(--brand-rose)'};margin-right:8px;font-size:1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem;color:var(--text-tertiary);">/100</span></div></div>`
     : `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><span style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);">No prior data</span></div>`;
 
   return `
@@ -427,7 +427,7 @@ window.renderIntelCards = function(data) {
         </div>
       </div>
       <a href="/report/${encodeURIComponent(hostname)}" style="text-decoration:none;">
-        <h3 style="font-size:1.8rem;color:#fff;margin-bottom:8px;word-break:break-all;transition:color 0.2s;" onmouseover="this.style.color='var(--brand-cyan)'" onmouseout="this.style.color='#fff'">${hostname}</h3>
+        <h3 style="font-size:1.8rem;color: var(--text-hero);margin-bottom:8px;word-break:break-all;transition:color 0.2s;" onmouseover="this.style.color='var(--brand-cyan)'" onmouseout="this.style.color='#fff'">${hostname}</h3>
       </a>
       <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-tertiary);letter-spacing:0.05em;margin-bottom:28px;">
         <a href="/report/${encodeURIComponent(hostname)}" style="color:var(--brand-cyan);text-decoration:none;">View full report →</a>
@@ -435,19 +435,19 @@ window.renderIntelCards = function(data) {
       <div style="display:flex;flex-direction:column;gap:16px;font-size:0.95rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
           <span style="color:var(--text-tertiary);">Hosting</span>
-          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
+          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
           <span style="color:var(--text-tertiary);">TLS issuer</span>
-          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
+          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
           <span style="color:var(--text-tertiary);">Expires in</span>
-          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${expiry}</span>
+          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${expiry}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="color:var(--text-tertiary);">Server</span>
-          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
+          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
         </div>
       </div>
     </div>
@@ -521,7 +521,7 @@ function renderResults(data, targetId = "results") {
   const stackHtml = stack.map(tech => `<span style="font-family: var(--font-sans); font-size: 0.85rem; color: var(--text-primary); background: var(--bg); border: 1px solid var(--surface-border); padding: 6px 12px; border-radius: 8px; font-weight: 500;">${tech}</span>`).join('');
 
   const prevScoreHtml = previousScan 
-    ? `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><div style="font-family: var(--font-serif); font-weight: 700; font-size: 1.25rem; color: #fff;"><span style="color: ${previousScan.score >= 75 ? 'var(--brand-emerald)' : previousScan.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}; margin-right: 8px; font-size: 1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem; color:var(--text-tertiary);">/100</span></div></div>`
+    ? `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><div style="font-family: var(--font-serif); font-weight: 700; font-size: 1.25rem; color: var(--text-hero);"><span style="color: ${previousScan.score >= 75 ? 'var(--brand-emerald)' : previousScan.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}; margin-right: 8px; font-size: 1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem; color:var(--text-tertiary);">/100</span></div></div>`
     : `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><span style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-secondary);">No prior data</span></div>`;
 
   const sidebarHtml = `
@@ -531,24 +531,24 @@ function renderResults(data, targetId = "results") {
         <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em;">SITE PROFILE</span>
         <div style="display: flex; align-items: center; gap: 6px; color: var(--brand-emerald); font-weight: 700; font-size: 0.75rem; font-family: var(--font-mono);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--brand-emerald); box-shadow: 0 0 8px var(--brand-emerald);"></span> LIVE</div>
       </div>
-      <h3 style="font-family: var(--font-serif); font-size: 1.8rem; color: #fff; margin-bottom: 32px; word-break: break-all;">${hostname}</h3>
+      <h3 style="font-family: var(--font-serif); font-size: 1.8rem; color: var(--text-hero); margin-bottom: 32px; word-break: break-all;">${hostname}</h3>
       
       <div style="display: flex; flex-direction: column; gap: 16px; font-size: 0.95rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
           <span style="color: var(--text-tertiary);">Hosting</span>
-          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
+          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
           <span style="color: var(--text-tertiary);">TLS issuer</span>
-          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
+          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
           <span style="color: var(--text-tertiary);">Expires in</span>
-          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${expiry}</span>
+          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${expiry}</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span style="color: var(--text-tertiary);">Server</span>
-          <span style="color: #fff; font-family: var(--font-mono); font-size: 0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
+          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
         </div>
       </div>
     </div>
@@ -570,23 +570,23 @@ function renderResults(data, targetId = "results") {
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
   
   if (isMalware || score < 40 || !raw.tls?.valid) {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-rose); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: #fff; font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: CRITICAL ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">${isMalware ? 'Infrastructure flagged by Google Safe Browsing. Malware or social engineering present.' : 'Severe vulnerabilities detected. Immediate infrastructure remediation required.'}</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-rose); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: CRITICAL ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">${isMalware ? 'Infrastructure flagged by Google Safe Browsing. Malware or social engineering present.' : 'Severe vulnerabilities detected. Immediate infrastructure remediation required.'}</span></div></div>`;
   } else if (score < 75) {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-amber); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: #fff; font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: WARNING ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">Infrastructure is operational but lacks strict security enforcement policies.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-amber); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: WARNING ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">Infrastructure is operational but lacks strict security enforcement policies.</span></div></div>`;
   } else {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-emerald); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: #fff; font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: SECURE ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">No critical exploits detected. Perimeter security policies are strictly enforced.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-emerald); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: SECURE ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">No critical exploits detected. Perimeter security policies are strictly enforced.</span></div></div>`;
   }
 
   let mainHtml = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:12px;"><span>Security Rating</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:9999px; font-family:var(--font-mono); font-weight:700;">PRO_UNLOCKED</span>' : ""}</div><div style="margin-top: 8px; font-size: 1rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.25rem; margin-left: 6px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.6;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
-    mainHtml += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color:#fff; font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
+    mainHtml += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color: var(--text-hero); font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
       if (alerts.length === 0) {
         mainHtml += `<div class="card result-card" data-severity="passed" style="border-left: 4px solid var(--brand-emerald); margin-bottom: 32px;"><strong style="color:var(--text-primary); display:block; font-size: 1.05rem;">Zero Runtime Vulnerabilities Detected</strong><p style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 6px;">Active exploitation payload execution returned clear.</p></div>`;
       } else {
-        mainHtml += `<h4 style="margin: 40px 0 20px; font-size: 1.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Dynamic Analysis Output</h4>`;
+        mainHtml += `<h4 style="margin: 40px 0 20px; font-size: 1.2rem; font-weight: 700; color: var(--text-hero); letter-spacing: -0.02em;">Dynamic Analysis Output</h4>`;
         alerts.forEach(alert => {
           let riskColor = "var(--text-secondary)";
           let riskBg = "var(--surface-subtle)";
@@ -599,32 +599,32 @@ function renderResults(data, targetId = "results") {
           const cleanDesc = alert.desc.replace(/<[^>]+>/g, '').substring(0, 180) + '...';
           const cleanSol = alert.solution.replace(/<[^>]+>/g, '').substring(0, 220) + '...';
 
-          mainHtml += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 24px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;"><strong style="color: #fff; font-size: 1.05rem;">${alert.name}</strong><span style="font-family: var(--font-mono); font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">[${riskText}]</span></div><div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">${cleanDesc}</div><div style="background: var(--surface-subtle); padding: 16px 20px; border-radius: var(--radius-md); font-size: 0.9rem; border: 1px solid var(--surface-border);"><strong style="color: #fff; font-family: var(--font-mono); display: block; margin-bottom: 8px; font-size: 0.8rem; letter-spacing: 0.05em;">REQUIREMENT_RESOLUTION</strong><span style="color: var(--text-secondary); line-height: 1.6; display: block;">${cleanSol}</span></div></div>`;
+          mainHtml += `<div class="card result-card" data-severity="${sev}" style="border-left: 4px solid ${riskColor}; margin-bottom: 16px; padding: 24px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;"><strong style="color: var(--text-hero); font-size: 1.05rem;">${alert.name}</strong><span style="font-family: var(--font-mono); font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 4px; background: ${riskBg}; color: ${riskColor}; letter-spacing: 0.05em;">[${riskText}]</span></div><div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">${cleanDesc}</div><div style="background: var(--surface-subtle); padding: 16px 20px; border-radius: var(--radius-md); font-size: 0.9rem; border: 1px solid var(--surface-border);"><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; margin-bottom: 8px; font-size: 0.8rem; letter-spacing: 0.05em;">REQUIREMENT_RESOLUTION</strong><span style="color: var(--text-secondary); line-height: 1.6; display: block;">${cleanSol}</span></div></div>`;
         });
       }
     }
   }
 
   const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
-  mainHtml += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">SSL/TLS Transport Encryption</strong>`;
+  mainHtml += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">SSL/TLS Transport Encryption</strong>`;
   if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; mainHtml += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono); color: var(--text-secondary);">${raw.tls.issuer}</span></div>`; } else mainHtml += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
   mainHtml += `</div>`;
 
   const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
-  mainHtml += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">HTTP Hardening Headers</strong>`;
+  mainHtml += `<div class="card result-card" data-severity="${hasMissingHeaders ? "critical" : "passed"}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">HTTP Hardening Headers</strong>`;
   (raw.headers?.missing || []).forEach(h => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-bad">Missing</span></div>`);
   (raw.headers?.present || []).forEach(h => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${h}</span><span class="status-badge status-ok">Enforced</span></div>`);
   mainHtml += `</div>`;
 
   const hasExposed = (raw.exposedFiles || []).length > 0;
-  mainHtml += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Public File Leakage</strong>`;
-  if (isGuest && hasExposed) mainHtml += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: var(--surface); border: 1px solid var(--surface-border); color: #fff; padding: 10px 24px; max-width: 200px;">Sign In to View</button></div>`;
+  mainHtml += `<div class="card result-card" data-severity="${hasExposed ? "critical" : "passed"}" style="position: relative; overflow: hidden;"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Public File Leakage</strong>`;
+  if (isGuest && hasExposed) mainHtml += `<div style="filter: blur(6px); pointer-events: none; opacity: 0.6;"><div class="result-item"><span style="font-family:var(--font-mono);">/.env</span><span class="status-badge status-bad">Exposed</span></div></div><div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;"><button onclick="showSignInModal()" class="cta-button" style="background: var(--surface); border: 1px solid var(--surface-border); color: var(--text-hero); padding: 10px 24px; max-width: 200px;">Sign In to View</button></div>`;
   else if (!raw.exposedFiles || raw.exposedFiles.length === 0) mainHtml += `<div class="result-item"><span>Sensitive Source Paths</span><span class="status-badge status-ok">Secured</span></div>`;
   else raw.exposedFiles.forEach(f => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${f.path}</span><span class="status-badge status-bad">Exposed</span></div>`);
   mainHtml += `</div>`;
 
   const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
-  mainHtml += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Email Spoofing Protection</strong>`;
+  mainHtml += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Email Spoofing Protection</strong>`;
   if (raw.emailAuth?.isSharedHost) {
       mainHtml += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
   } else {
@@ -635,7 +635,7 @@ function renderResults(data, targetId = "results") {
 
   if (raw.cookies?.hasCookies) {
       const cookieSev = badCookies.length > 0 ? "warning" : "passed";
-      mainHtml += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Session & Cookie Security</strong>`;
+      mainHtml += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Session & Cookie Security</strong>`;
       if (badCookies.length === 0) {
            mainHtml += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
       } else {
@@ -645,14 +645,14 @@ function renderResults(data, targetId = "results") {
   }
 
   const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
-  mainHtml += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: #fff;">Cross-Origin Resource Sharing (CORS)</strong>`;
+  mainHtml += `<div class="card result-card" data-severity="${corsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Cross-Origin Resource Sharing (CORS)</strong>`;
   if (raw.cors?.dangerousCombo) mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-bad">Dangerous</span></div>`;
   else if (raw.cors?.wildcardOpen) mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-warn">Wildcard Open</span></div>`;
   else mainHtml += `<div class="result-item"><span>Configuration</span><span class="status-badge status-ok">Strict</span></div>`;
   mainHtml += `</div>`;
 
-  if (isGuest) mainHtml += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: #fff; margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: #fff; color: #000; border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
-  else mainHtml += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: #fff; color: #000; border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
+  if (isGuest) mainHtml += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: var(--text-hero); margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
+  else mainHtml += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: var(--text-hero); color: var(--bg-inverse); border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
   
   // Assemble final layout — single column, sidebar cards live on homepage only
   resultsEl.innerHTML = `
@@ -746,14 +746,14 @@ function renderResults(data, targetId = "results") {
         
         const parseMD = (text) => window.marked ? marked.parse(text) : text;
 
-        let reportsHtml = `<div class="card" style="animation: floatUpFade 0.6s var(--ease-float);"><strong style="display:block; font-size:1.15rem; font-weight:700; margin-bottom:16px; color:#fff;">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
+        let reportsHtml = `<div class="card" style="animation: floatUpFade 0.6s var(--ease-float);"><strong style="display:block; font-size:1.15rem; font-weight:700; margin-bottom:16px; color: var(--text-hero);">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
         
         reportsHtml += `
           <div id="aiReportContainer" style="animation: floatUpFade 0.7s var(--ease-float);">
             <div class="card" style="text-align: center; border: 1px solid var(--surface-border); padding: 48px 32px; background: var(--surface-subtle); margin-top: 24px;">
-              <strong style="color: #fff; font-size: 1.15rem; display: block; margin-bottom: 12px;">Advanced AppSec Analysis</strong>
+              <strong style="color: var(--text-hero); font-size: 1.15rem; display: block; margin-bottom: 12px;">Advanced AppSec Analysis</strong>
               <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px; max-width: 500px; margin-left: auto; margin-right: auto;">Execute a deep contextual review of infrastructure telemetry using generative security models.</p>
-              <button id="generateAiBtn" class="cta-button" style="max-width: 280px; margin: 0 auto; background: #fff; color: #000; border: none;">Execute Advanced Analysis</button>
+              <button id="generateAiBtn" class="cta-button" style="max-width: 280px; margin: 0 auto; background: var(--text-hero); color: var(--bg-inverse); border: none;">Execute Advanced Analysis</button>
             </div>
           </div>
         `;
@@ -775,7 +775,7 @@ function renderResults(data, targetId = "results") {
             aiContainer.style.transition = "all 0.4s var(--ease-float)";
             
             setTimeout(() => {
-              aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:64px 32px; border: 1px solid var(--surface-border); background: var(--surface-subtle);"><h3 style="color:#fff; margin-bottom:12px; animation: pulse 1.5s infinite; font-size: 1.2rem;">Executing Analysis Engine...</h3><p style="color:var(--text-tertiary); font-size:0.95rem; font-family: var(--font-mono);">Parsing infrastructure and runtime telemetry payloads.</p></div>';
+              aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:64px 32px; border: 1px solid var(--surface-border); background: var(--surface-subtle);"><h3 style="color: var(--text-hero); margin-bottom:12px; animation: pulse 1.5s infinite; font-size: 1.2rem;">Executing Analysis Engine...</h3><p style="color:var(--text-tertiary); font-size:0.95rem; font-family: var(--font-mono);">Parsing infrastructure and runtime telemetry payloads.</p></div>';
               aiContainer.style.opacity = "1";
               aiContainer.style.transform = "translateY(0)";
             }, 400);
@@ -791,7 +791,7 @@ function renderResults(data, targetId = "results") {
               if (aiRes.aiReport) {
                 aiHtml = `
                   <div class="card ai-card" style="animation: floatUpFade 0.6s var(--ease-float); margin-top: 24px;">
-                    <div class="ai-header"><div class="ai-header-title" style="color: #fff;"><span>System Remediation Blueprint</span></div></div>
+                    <div class="ai-header"><div class="ai-header-title" style="color: var(--text-hero);"><span>System Remediation Blueprint</span></div></div>
                     <div class="report">${parseMD(aiRes.aiReport)}</div>
                   </div>
                   <div class="action-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 24px; animation: floatUpFade 0.8s var(--ease-float);">
@@ -803,7 +803,7 @@ function renderResults(data, targetId = "results") {
                 if (currentUser && currentUser.is_pro) {
                    aiHtml = `<div class="card ai-error" style="border-left: 4px solid var(--brand-rose); padding: 32px; margin-top: 24px;"><strong style="color: var(--text-primary); font-size: 1.1rem; display: block; margin-bottom: 8px;">Analysis Engine Fault</strong><p style="color: var(--text-secondary); font-size: 0.95rem;">${aiRes.aiError}</p></div>`;
                 } else {
-                   aiHtml = `<div class="card ai-error" style="border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; text-align: center; margin-top: 24px;"><strong style="color: #fff; font-size: 1.2rem; display: block; margin-bottom: 12px;">Advanced Analysis Locked</strong><p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto;">Pro authorization is required to access the generative security engine.</p><button onclick="window.launchRazorpayCheckout('Advanced AppSec Analysis', () => window.location.reload())" class="cta-button" style="background: #fff; color: #000; border: none; max-width: 250px; margin: 0 auto;">Authorize Upgrade</button></div>`;
+                   aiHtml = `<div class="card ai-error" style="border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; text-align: center; margin-top: 24px;"><strong style="color: var(--text-hero); font-size: 1.2rem; display: block; margin-bottom: 12px;">Advanced Analysis Locked</strong><p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto;">Pro authorization is required to access the generative security engine.</p><button onclick="window.launchRazorpayCheckout('Advanced AppSec Analysis', () => window.location.reload())" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border: none; max-width: 250px; margin: 0 auto;">Authorize Upgrade</button></div>`;
                 }
               }
               
@@ -837,7 +837,7 @@ function renderResults(data, targetId = "results") {
         const modalHtml = `
           <div id="disableModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);">
             <div class="card" style="max-width:440px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;">
-              <h3 style="color:#fff; font-size:1.35rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Terminate Telemetry?</h3>
+              <h3 style="color: var(--text-hero); font-size:1.35rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Terminate Telemetry?</h3>
               <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;">Terminating alerts initiates a strict 24-hour system cooldown for this target domain. Do you wish to proceed?</p>
               <div style="display:flex; gap: 16px;">
                 <button id="confirmDisableBtn" class="cta-button" style="background:var(--brand-rose); border-color:var(--brand-rose); flex:1;">Terminate</button>
@@ -920,7 +920,7 @@ window.showLoadingState = function(container, mode) {
           <button style="background: transparent; border: 1px solid var(--surface-border); color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.7rem; padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer; letter-spacing: 0.05em; transition: color 0.2s, border-color 0.2s;" onmouseover="this.style.color='#fff';this.style.borderColor='var(--surface-border)'" onmouseout="this.style.color='var(--text-tertiary)';this.style.borderColor='var(--surface-border)'" onclick="window.location.reload()">CANCEL</button>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 16px; margin-bottom: 24px;">
-          <h2 id="loadingHeadline" style="font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Initializing engine</h2>
+          <h2 id="loadingHeadline" style="font-size: 2.2rem; font-weight: 700; color: var(--text-hero); letter-spacing: -0.02em;">Initializing engine</h2>
           <span id="loadingPercent" style="font-family: var(--font-mono); font-size: 2.5rem; color: ${color}; font-weight: 800; letter-spacing: -0.05em;">0%</span>
         </div>
         <div style="width: 100%; height: 4px; background: var(--bg); border: 1px solid var(--surface-border); border-radius: 9999px; margin-bottom: 40px; overflow: hidden;">
