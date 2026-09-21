@@ -5,8 +5,8 @@ const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.goo
 /* ============================================================
    TOP SITE HEADER BAR
    ============================================================ */
-window.initSiteHeader = function() {
-  if (document.getElementById('site-header')) return; // guard
+window.initSiteHeader = function () {
+  if (document.getElementById('site-header')) return;
 
   const header = document.createElement('header');
   header.id = 'site-header';
@@ -28,11 +28,11 @@ window.initSiteHeader = function() {
     <!-- Live stats & Controls (right) -->
     <div style="display:flex; align-items:center;">
       <div class="site-header-stats" id="header-auth-stats">
-        <!-- Populated by updateHeaderAuthUI -->
+        <!-- Dynamically rendered by updateHeaderAuthUI -->
       </div>
       
       <!-- Theme Toggle -->
-      <button id="theme-toggle-btn" aria-label="Toggle theme" style="background:transparent; border:none; color:var(--text-tertiary); cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; border-radius:50%; margin-left:16px; transition:color 0.2s, background 0.2s;">
+      <button id="theme-toggle-btn" aria-label="Toggle theme" title="Toggle theme" style="background:transparent; border:none; color:var(--text-tertiary); cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; border-radius:50%; margin-left:14px; transition:color 0.2s, background 0.2s;">
       </button>
     </div>
   `;
@@ -43,12 +43,12 @@ window.initSiteHeader = function() {
   const themeBtn = document.getElementById('theme-toggle-btn');
   const updateThemeIcon = () => {
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    themeBtn.innerHTML = isLight 
+    themeBtn.innerHTML = isLight
       ? '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>'
       : '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
   };
   updateThemeIcon();
-  
+
   themeBtn.addEventListener('click', () => {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
@@ -65,29 +65,35 @@ window.initSiteHeader = function() {
   if (window.updateHeaderAuthUI) window.updateHeaderAuthUI();
 };
 
-window.updateHeaderAuthUI = async function() {
+window.updateHeaderAuthUI = async function () {
   const statsContainer = document.getElementById('header-auth-stats');
   if (!statsContainer) return;
 
-  let todayCount = 0;
-  try {
-    const res = await fetch('/api/recent');
-    if (res.ok) {
-      const items = await res.json();
-      const todayStr = new Date().toISOString().slice(0, 10);
-      todayCount = Array.isArray(items)
-        ? items.filter(i => i.scanned_at && i.scanned_at.slice(0, 10) === todayStr).length
-        : items.length || 0;
-    }
-  } catch (e) {}
+  if (window.authReady) await window.authReady;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let todayCount = parseInt(localStorage.getItem('sitescanner_scan_count_' + todayStr) || '0', 10);
+
+  if (currentUser) {
+    try {
+      const res = await fetch('/api/user-history');
+      if (res.ok) {
+        const scans = await res.json();
+        if (Array.isArray(scans)) {
+          const userToday = scans.filter(s => (s.scanned_at || '').slice(0, 10) === todayStr).length;
+          todayCount = Math.max(todayCount, userToday);
+        }
+      }
+    } catch (e) { }
+  }
 
   const isPro = currentUser && currentUser.is_pro;
-  
+
   if (isPro) {
     statsContainer.innerHTML = `
       <div class="site-header-stat">
         <div class="header-live-dot"></div>
-        <span style="color:var(--brand-emerald); font-weight:bold;">PRO TIER</span>
+        <span style="color:var(--brand-emerald); font-weight:700;">PRO UNLIMITED</span>
       </div>
       <div class="site-header-divider"></div>
       <div class="site-header-stat">
@@ -98,12 +104,12 @@ window.updateHeaderAuthUI = async function() {
   } else {
     const scansLeft = Math.max(0, 5 - todayCount);
     statsContainer.innerHTML = `
-      <div class="site-header-stat" style="color:var(--brand-amber);">
+      <div class="site-header-stat">
         <span>Scans Left</span>
-        <strong style="color:var(--text-primary);">${scansLeft} / 5</strong>
+        <strong style="color:${scansLeft > 1 ? 'var(--text-primary)' : 'var(--brand-rose)'};">${scansLeft} / 5</strong>
       </div>
       <div class="site-header-divider"></div>
-      <button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:var(--brand-emerald); color: var(--bg-inverse); border:none; padding:4px 12px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem; font-weight:bold; cursor:pointer; text-transform:uppercase; transition:opacity 0.2s;">
+      <button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:var(--brand-emerald); color:#000; border:none; padding:5px 14px; border-radius:9999px; font-family:var(--font-mono); font-size:0.68rem; font-weight:800; cursor:pointer; text-transform:uppercase; letter-spacing:0.04em; transition:opacity 0.2s;" onmouseover="this.style.opacity=0.85" onmouseout="this.style.opacity=1">
         Upgrade to Pro
       </button>
     `;
@@ -113,24 +119,21 @@ window.updateHeaderAuthUI = async function() {
 /* ============================================================
    VERTICAL NAV DOCK
    ============================================================ */
-window.initNavDock = function() {
-  if (document.getElementById('nav-dock')) return; // Guard: only once
+window.initNavDock = function () {
+  if (document.getElementById('nav-dock')) return;
 
   const path = window.location.pathname;
-
-  // Determine active item by pathname
-  const isHome      = path === '/' || path === '/index.html';
+  const isHome = path === '/' || path === '/index.html';
   const isDashboard = path.startsWith('/dashboard');
-  const isHistory   = path.startsWith('/history');
+  const isHistory = path.startsWith('/history');
 
   function activeClass(key) {
-    if (key === 'home' && isHome)           return 'dock-active-home';
+    if (key === 'home' && isHome) return 'dock-active-home';
     if (key === 'dashboard' && isDashboard) return 'dock-active';
-    if (key === 'history' && isHistory)     return 'dock-active';
+    if (key === 'history' && isHistory) return 'dock-active';
     return '';
   }
 
-  // SVG icon strings (Lucide-style, inline)
   const icons = {
     home: `<svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>`,
     dashboard: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
@@ -149,22 +152,20 @@ window.initNavDock = function() {
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </div>
     <div class="dock-sep"></div>
-    <a href="/"          class="dock-item ${activeClass('home')}"      data-tip="Home"           aria-label="Home">${icons.home}</a>
+    <a href="/" class="dock-item ${activeClass('home')}" data-tip="Home" aria-label="Home">${icons.home}</a>
     <a href="/dashboard.html" class="dock-item ${activeClass('dashboard')}" data-tip="Command Center" aria-label="Command Center">${icons.dashboard}</a>
     <div class="dock-sep"></div>
-    <button class="dock-item" id="dock-alerts"   data-tip="Alerts"   aria-label="Alerts">${icons.alerts}</button>
-    <button class="dock-item" id="dock-usage"    data-tip="Usage"    aria-label="Usage">${icons.usage}</button>
+    <button class="dock-item" id="dock-alerts" data-tip="Alerts" aria-label="Alerts">${icons.alerts}</button>
+    <button class="dock-item" id="dock-usage" data-tip="Usage" aria-label="Usage">${icons.usage}</button>
     <div class="dock-sep"></div>
-    <a href="/history"   class="dock-item ${activeClass('history')}"   data-tip="History"        aria-label="History">${icons.history}</a>
+    <a href="/history" class="dock-item ${activeClass('history')}" data-tip="History" aria-label="History">${icons.history}</a>
     <button class="dock-item" id="dock-settings" data-tip="Settings" aria-label="Settings">${icons.settings}</button>
-    <button class="dock-item" id="dock-about"    data-tip="About"    aria-label="About">${icons.about}</button>
+    <button class="dock-item" id="dock-about" data-tip="About" aria-label="About">${icons.about}</button>
   `;
   document.body.appendChild(dock);
 
-  // Wire auth slot — updateNavAuthUI will populate it after auth resolves
   updateDockAuth();
 
-  // ── Modal helper ──────────────────────────────────────────
   function openDockModal(html) {
     closeDockModal();
     const backdrop = document.createElement('div');
@@ -179,65 +180,59 @@ window.initNavDock = function() {
     document.getElementById('dock-modal-backdrop')?.remove();
   }
 
-  // ── Alerts modal ─────────────────────────────────────────
   document.getElementById('dock-alerts').onclick = () => openDockModal(`
     <span class="dock-modal-label">[ ALERT CONFIG ]</span>
     <h3>Monitor Alerts</h3>
-    <p>Automated infrastructure alerts trigger when a monitored domain's security score drops below a configured threshold or a critical check fails.</p>
-    <div class="dock-modal-row"><span class="dock-modal-key">Threshold</span><span class="dock-modal-val">Score &lt; 50</span></div>
-    <div class="dock-modal-row"><span class="dock-modal-key">Delivery</span><span class="dock-modal-val">Email on change</span></div>
+    <p>Automated alerts trigger when a monitored domain security posture degrades or scores drop below threshold.</p>
+    <div class="dock-modal-row"><span class="dock-modal-key">Threshold</span><span class="dock-modal-val">Score &lt; 70</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Delivery</span><span class="dock-modal-val">Immediate Email</span></div>
     <div class="dock-modal-row"><span class="dock-modal-key">Status</span><span class="dock-modal-val" style="color:var(--brand-emerald)">Active</span></div>
     <div style="margin-top:24px;">
-      <a href="/dashboard.html" style="display:inline-block; font-size:0.85rem; font-weight:600; color:var(--brand-cyan); text-decoration:none; font-family:var(--font-mono);">Manage in Command Center →</a>
+      <a href="/dashboard.html" style="display:inline-block; font-size:0.85rem; font-weight:600; color:var(--brand-cyan); text-decoration:none; font-family:var(--font-mono);">Open Command Center →</a>
     </div>
   `);
 
-  // ── Usage modal ──────────────────────────────────────────
   document.getElementById('dock-usage').onclick = async () => {
     const user = currentUser;
-    const tier  = user?.is_pro ? 'PRO' : 'FREE';
+    const tier = user?.is_pro ? 'PRO' : 'FREE';
     const limit = user?.is_pro ? 'Unlimited' : '5 / day';
     openDockModal(`
       <span class="dock-modal-label">[ PLAN USAGE ]</span>
       <h3>Scan Allocation</h3>
-      <p>Current usage metrics for your account tier. Upgrade to Pro for unlimited daily scans and advanced DAST.</p>
+      <p>Current resource quotas for your active session tier.</p>
       <div class="dock-modal-row"><span class="dock-modal-key">Tier</span><span class="dock-modal-val" style="color:${user?.is_pro ? 'var(--brand-emerald)' : 'var(--brand-purple)'}">${tier}</span></div>
       <div class="dock-modal-row"><span class="dock-modal-key">Daily Scans</span><span class="dock-modal-val">${limit}</span></div>
-      <div class="dock-modal-row"><span class="dock-modal-key">Active DAST</span><span class="dock-modal-val">${user?.is_pro ? 'Enabled' : 'Pro Only'}</span></div>
-      ${!user?.is_pro ? `<div style="margin-top:24px;"><button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:transparent;border:1px solid var(--brand-emerald);color:var(--brand-emerald);font-family:var(--font-mono);font-size:0.8rem;padding:8px 20px;border-radius:9999px;cursor:pointer;letter-spacing:0.05em;">UPGRADE TO PRO →</button></div>` : ''}
+      <div class="dock-modal-row"><span class="dock-modal-key">Active DAST</span><span class="dock-modal-val">${user?.is_pro ? 'Authorized' : 'Pro Restricted'}</span></div>
+      ${!user?.is_pro ? `<div style="margin-top:24px;"><button onclick="window.launchRazorpayCheckout('Pro Plan')" class="cta-button" style="background:var(--text-hero); color:var(--bg-inverse); border:none;">Upgrade to Pro (₹499)</button></div>` : ''}
     `);
   };
 
-  // ── Settings modal ───────────────────────────────────────
   document.getElementById('dock-settings').onclick = () => {
     const user = currentUser;
     if (!user) return showSignInModal();
     openDockModal(`
-      <span class="dock-modal-label">[ ACCOUNT ]</span>
-      <h3>Settings</h3>
-      <div class="dock-modal-row"><span class="dock-modal-key">Name</span><span class="dock-modal-val">${user.name || '—'}</span></div>
+      <span class="dock-modal-label">[ ACCOUNT SETTINGS ]</span>
+      <h3>${user.name || 'User'}</h3>
       <div class="dock-modal-row"><span class="dock-modal-key">Email</span><span class="dock-modal-val" style="font-size:0.8rem">${user.email || '—'}</span></div>
       <div class="dock-modal-row"><span class="dock-modal-key">Plan</span><span class="dock-modal-val" style="color:${user.is_pro ? 'var(--brand-emerald)' : 'var(--brand-purple)'}">${user.is_pro ? 'PRO' : 'FREE'}</span></div>
-      <div style="margin-top:28px; display:flex; gap:12px; flex-wrap:wrap;">
+      <div style="margin-top:28px; display:flex; gap:16px;">
         <a href="/dashboard.html" style="font-size:0.82rem;font-weight:600;color:var(--brand-cyan);text-decoration:none;font-family:var(--font-mono);">Command Center →</a>
         <button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())" style="background:transparent;border:none;color:var(--brand-rose);font-family:var(--font-mono);font-size:0.82rem;font-weight:600;cursor:pointer;padding:0;">Sign Out</button>
       </div>
     `);
   };
 
-  // ── About modal ──────────────────────────────────────────
   document.getElementById('dock-about').onclick = () => openDockModal(`
-    <span class="dock-modal-label">[ SYSTEM INFO ]</span>
-    <h3>SiteScanner</h3>
-    <p>Passive and active security auditing for web infrastructure. Evaluates HTTP posture, TLS configuration, email authentication, exposed files, and security policy compliance.</p>
+    <span class="dock-modal-label">[ SYSTEM METRICS ]</span>
+    <h3>SiteScanner Engine</h3>
+    <p>Passive reconnaissance and active containerized DAST engine for perimeter web infrastructure verification.</p>
     <div class="dock-modal-row"><span class="dock-modal-key">Engine</span><span class="dock-modal-val">v2.4.1</span></div>
-    <div class="dock-modal-row"><span class="dock-modal-key">Runtime</span><span class="dock-modal-val">Node.js · Edge</span></div>
-    <div class="dock-modal-row"><span class="dock-modal-key">Checks</span><span class="dock-modal-val">12 passive · 6 active</span></div>
-    <div class="dock-modal-row"><span class="dock-modal-key">Data retention</span><span class="dock-modal-val">90 days</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Workers</span><span class="dock-modal-val">OWASP ZAP Core</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Retention</span><span class="dock-modal-val">90 Days Cryptographic</span></div>
   `);
 };
 
-window.loadRecentFeed = async function() {
+window.loadRecentFeed = async function () {
   const recentListEl = document.getElementById('recentList');
   if (!recentListEl) return;
   try {
@@ -247,7 +242,16 @@ window.loadRecentFeed = async function() {
   } catch { recentListEl.innerHTML = '<span style="color:var(--text-tertiary); font-size:0.8rem;">[ SYSTEM_OFFLINE ]</span>'; }
 };
 
-async function checkAuthSession() { try { const data = await (await fetch("/api/auth/me")).json(); currentUser = data.user; updateNavAuthUI(); } catch { currentUser = null; updateNavAuthUI(); } }
+async function checkAuthSession() {
+  try {
+    const data = await (await fetch("/api/auth/me")).json();
+    currentUser = data.user;
+    updateNavAuthUI();
+  } catch {
+    currentUser = null;
+    updateNavAuthUI();
+  }
+}
 
 function updateDockAuth() {
   const slot = document.getElementById('dock-auth-slot');
@@ -258,47 +262,20 @@ function updateDockAuth() {
     const badgeColor = isPro ? 'var(--brand-emerald)' : 'var(--brand-purple)';
     const avatarSrc = currentUser.avatar_url || '';
 
-    // Show avatar image or fallback initials
     if (avatarSrc) {
       slot.innerHTML = `<img src="${avatarSrc}" alt="Avatar" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:2px solid ${badgeColor};display:block;" />`;
     } else {
       const initial = (currentUser.name || 'U')[0].toUpperCase();
-      slot.innerHTML = `<span style="width:30px;height:30px;border-radius:50%;background:var(--surface-subtle);border:2px solid ${badgeColor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color: var(--text-hero);">${initial}</span>`;
+      slot.innerHTML = `<span style="width:30px;height:30px;border-radius:50%;background:var(--surface-subtle);border:2px solid ${badgeColor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:var(--text-hero);">${initial}</span>`;
     }
     slot.style.background = `rgba(${isPro ? '52,211,153' : '129,140,248'},0.1)`;
     slot.setAttribute('data-tip', currentUser.name ? currentUser.name.split(' ')[0] : 'Account');
 
     slot.onclick = (e) => {
       e.stopPropagation();
-      // Reuse the dock settings modal
-      const existingBackdrop = document.getElementById('dock-modal-backdrop');
-      if (existingBackdrop) { existingBackdrop.remove(); return; }
-      const backdrop = document.createElement('div');
-      backdrop.className = 'dock-modal-backdrop';
-      backdrop.id = 'dock-modal-backdrop';
-      backdrop.innerHTML = `
-        <div class="dock-modal">
-          <button class="dock-modal-close" aria-label="Close">✕</button>
-          <span class="dock-modal-label">[ ACCOUNT ]</span>
-          <h3>${currentUser.name || 'User'}</h3>
-          <div class="dock-modal-row"><span class="dock-modal-key">Email</span><span class="dock-modal-val" style="font-size:0.78rem">${currentUser.email || '—'}</span></div>
-          <div class="dock-modal-row"><span class="dock-modal-key">Plan</span><span class="dock-modal-val" style="color:${badgeColor}">${isPro ? 'PRO' : 'FREE'}</span></div>
-          <div style="margin-top:28px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-            <a href="/dashboard.html" style="font-size:0.82rem;font-weight:600;color:var(--brand-cyan);text-decoration:none;font-family:var(--font-mono);">Command Center →</a>
-            <button id="dockLogoutBtn" style="background:transparent;border:none;color:var(--brand-rose);font-family:var(--font-mono);font-size:0.82rem;font-weight:600;cursor:pointer;padding:0;">Sign Out</button>
-          </div>
-        </div>`;
-      document.body.appendChild(backdrop);
-      backdrop.querySelector('.dock-modal-close').onclick = () => backdrop.remove();
-      backdrop.addEventListener('click', ev => { if (ev.target === backdrop) backdrop.remove(); });
-      document.getElementById('dockLogoutBtn').onclick = async () => {
-        await fetch('/api/auth/logout', { method: 'POST' });
-        currentUser = null;
-        location.reload();
-      };
+      document.getElementById('dock-settings')?.click();
     };
   } else {
-    // Not signed in — ghost user icon, click to sign in
     slot.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
     slot.style.background = '';
     slot.setAttribute('data-tip', 'Sign In');
@@ -307,207 +284,158 @@ function updateDockAuth() {
 }
 
 function updateNavAuthUI() {
-  // Legacy: kept for any legacy callers (e.g. after payment success).
-  // Now delegates entirely to the dock slot.
   updateDockAuth();
   if (window.updateHeaderAuthUI) window.updateHeaderAuthUI();
 }
 
-
 function showSignInModal() {
   if (document.getElementById("authModal")) document.getElementById("authModal").remove();
-  const modalHtml = `<div id="authModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:400px; width:100%; text-align:center; padding:40px 32px;"><h3 style="color: var(--text-hero); font-size:1.35rem; font-weight:700; margin-bottom:12px;">Authentication Required</h3><p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:32px;">Log in with Google to synchronize your enterprise audits, remediation plans, and custom telemetry monitors.</p><div id="googleBtnContainer" style="display:flex; justify-content:center; margin-bottom:24px;"></div><button id="closeAuthModal" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding: 8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Cancel</button></div></div>`;
-  document.body.insertAdjacentHTML("beforeend", modalHtml); document.getElementById("closeAuthModal").onclick = () => document.getElementById("authModal").remove();
-  if (window.google) { window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: async (res) => { try { const data = await (await fetch("/api/auth/google", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: res.credential }) })).json(); if (data.success) { currentUser = data.user; document.getElementById("authModal")?.remove(); updateNavAuthUI(); location.reload(); } else alert("Authentication failed: " + data.error); } catch (err) { alert("Network error during authentication."); } } }); window.google.accounts.id.renderButton(document.getElementById("googleBtnContainer"), { theme: "filled_black", size: "large", width: 280, shape: "pill" }); }
+  const modalHtml = `<div id="authModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:400px; width:100%; text-align:center; padding:40px 32px;"><h3 style="color:var(--text-hero); font-size:1.35rem; font-weight:700; margin-bottom:12px;">Authentication Required</h3><p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.6; margin-bottom:32px;">Log in with Google to synchronize your enterprise audits, remediation plans, and custom telemetry monitors.</p><div id="googleBtnContainer" style="display:flex; justify-content:center; margin-bottom:24px;"></div><button id="closeAuthModal" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding: 8px 16px; transition: color 0.2s;" onmouseover="this.style.color='var(--text-hero)'" onmouseout="this.style.color='var(--text-tertiary)'">Cancel</button></div></div>`;
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+  document.getElementById("closeAuthModal").onclick = () => document.getElementById("authModal").remove();
+  if (window.google) {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async (res) => {
+        try {
+          const data = await (await fetch("/api/auth/google", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: res.credential }) })).json();
+          if (data.success) {
+            currentUser = data.user;
+            document.getElementById("authModal")?.remove();
+            updateNavAuthUI();
+            location.reload();
+          } else alert("Authentication failed: " + data.error);
+        } catch (err) { alert("Network error during authentication."); }
+      }
+    });
+    window.google.accounts.id.renderButton(document.getElementById("googleBtnContainer"), { theme: "filled_black", size: "large", width: 280, shape: "pill" });
+  }
 }
 
-window.launchRazorpayCheckout = function(featureName, onSuccess) {
+window.launchRazorpayCheckout = function (featureName, onSuccess) {
   if (!currentUser) return showSignInModal();
   if (document.getElementById("paywallModal")) document.getElementById("paywallModal").remove();
-  if (typeof window.Razorpay === "undefined") return alert("Payment system initializing. Please try again.");
-  document.body.insertAdjacentHTML("beforeend", `<div id="paywallModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:480px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--brand-emerald); font-size: 0.8rem; letter-spacing: 0.05em; display: block; margin-bottom: 16px;">[ PRO TIER REQUIRED ]</span><h3 style="color: var(--text-hero); font-size:1.5rem; font-weight:800; margin-bottom:12px; letter-spacing: -0.02em;">Upgrade Required</h3><p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;"><strong>${featureName}</strong> is restricted. Upgrade to provision unlimited daily scans, automated infrastructure monitoring, and advanced remediation planning.</p><button id="paywallCheckoutBtn" class="cta-button" style="margin-bottom:16px; font-weight:700; background: var(--text-hero); color: var(--bg-inverse); border: none;">Authorize Upgrade (₹499)</button><button id="paywallCloseBtn" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding:8px 16px; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-tertiary)'">Dismiss</button></div></div>`);
+  if (typeof window.Razorpay === "undefined") return alert("Payment gateway initializing. Please try again.");
+  document.body.insertAdjacentHTML("beforeend", `<div id="paywallModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; animation: floatUpFade 0.3s var(--ease-float);"><div class="card" style="max-width:480px; width:100%; border:1px solid var(--surface-border); text-align:center; padding:40px 32px;"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--brand-emerald); font-size: 0.8rem; letter-spacing: 0.05em; display: block; margin-bottom: 16px;">[ PRO TIER REQUIRED ]</span><h3 style="color:var(--text-hero); font-size:1.5rem; font-weight:800; margin-bottom:12px; letter-spacing: -0.02em;">Upgrade Required</h3><p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:32px;"><strong>${featureName}</strong> is restricted. Upgrade to provision unlimited daily scans, automated infrastructure monitoring, and advanced remediation planning.</p><button id="paywallCheckoutBtn" class="cta-button" style="margin-bottom:16px; font-weight:700; background:var(--text-hero); color:var(--bg-inverse); border: none;">Authorize Upgrade (₹499)</button><button id="paywallCloseBtn" type="button" style="background:transparent; border:none; color:var(--text-tertiary); font-weight:600; cursor:pointer; font-size:0.85rem; padding:8px 16px; transition: color 0.2s;" onmouseover="this.style.color='var(--text-hero)'" onmouseout="this.style.color='var(--text-tertiary)'">Dismiss</button></div></div>`);
   document.getElementById("paywallCloseBtn").onclick = () => document.getElementById("paywallModal").remove();
   document.getElementById("paywallCheckoutBtn").onclick = async () => {
-    const btn = document.getElementById("paywallCheckoutBtn"); btn.disabled = true; btn.textContent = "Provisioning Order...";
+    const btn = document.getElementById("paywallCheckoutBtn");
+    btn.disabled = true;
+    btn.textContent = "Provisioning Order...";
     try {
       const order = await (await fetch("/api/create-order", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) })).json();
       if (order.error) throw new Error(order.error);
-      const rzp = new window.Razorpay({ key: order.keyId, amount: order.amount, currency: order.currency, name: "SiteScanner Pro", order_id: order.orderId, handler: async function (response) { btn.textContent = "Verifying Transaction..."; try { const verifyData = await (await fetch("/api/verify-payment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature }) })).json(); if (verifyData.success) { currentUser.is_pro = true; document.getElementById("paywallModal")?.remove(); updateNavAuthUI(); if (onSuccess) onSuccess(); } else { alert("Transaction Failed"); btn.disabled = false; btn.textContent = "Authorize Upgrade (₹499)"; } } catch { alert("Network Error"); btn.disabled = false; btn.textContent = "Authorize Upgrade (₹499)"; } }, prefill: { name: currentUser.name || "Administrator", email: currentUser.email || "" }, theme: { color: "#ffffff" } });
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "SiteScanner Pro",
+        order_id: order.orderId,
+        handler: async function (response) {
+          btn.textContent = "Verifying Transaction...";
+          try {
+            const verifyData = await (await fetch("/api/verify-payment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature }) })).json();
+            if (verifyData.success) {
+              currentUser.is_pro = true;
+              document.getElementById("paywallModal")?.remove();
+              updateNavAuthUI();
+              if (onSuccess) onSuccess();
+            } else {
+              alert("Transaction Failed");
+              btn.disabled = false;
+              btn.textContent = "Authorize Upgrade (₹499)";
+            }
+          } catch {
+            alert("Network Error");
+            btn.disabled = false;
+            btn.textContent = "Authorize Upgrade (₹499)";
+          }
+        },
+        prefill: { name: currentUser.name || "Administrator", email: currentUser.email || "" },
+        theme: { color: "#ffffff" }
+      });
       rzp.open();
-    } catch (err) { btn.disabled = false; btn.textContent = "System Error: " + err.message; }
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "System Error: " + err.message;
+    }
   };
 }
 
-window.showDnsVerificationModal = async function(hostname, onSuccess) {
+window.showDnsVerificationModal = async function (hostname, onSuccess) {
   if (document.getElementById("dnsModal")) document.getElementById("dnsModal").remove();
   let tokenData;
   try {
     const res = await fetch("/api/verification/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname }) });
-    tokenData = await res.json(); if (tokenData.isVerified) return onSuccess();
+    tokenData = await res.json();
+    if (tokenData.isVerified) return onSuccess();
   } catch (err) { return alert("Authorization payload failed to generate."); }
 
   const modalHtml = `
     <div id="dnsModal" style="position:fixed; inset:0; background:rgba(10, 14, 23, 0.85); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; overflow-y: auto; animation: floatUpFade 0.3s var(--ease-float);">
       <div class="card" style="max-width:600px; width:100%; border:1px solid var(--surface-border); text-align:left; padding:40px; margin-top: auto; margin-bottom: auto;">
-        <h3 style="color: var(--text-hero); font-size:1.4rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Domain Authorization Required</h3>
+        <h3 style="color:var(--text-hero); font-size:1.4rem; font-weight:700; margin-bottom:12px; letter-spacing: -0.02em;">Domain Authorization Required</h3>
         <p style="color:var(--text-secondary); font-size:0.95rem; line-height:1.6; margin-bottom:24px;">To execute dynamic application security testing (DAST), cryptographic proof of ownership for <strong>${hostname}</strong> is required. Deploy one of the following verification records.</p>
         
         <div style="background: var(--surface-subtle); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 16px;">
-          <strong style="color: var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_01: DNS TXT RECORD ]</strong>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Type</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px;">TXT</div></div>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Host / Name</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px;">@ <span style="color:var(--text-tertiary); font-size:0.8rem;">(or ${hostname})</span></div></div>
-          <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Value / Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid rgba(255,255,255,0.1);">${tokenData.token}</div></div>
+          <strong style="color:var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_01: DNS TXT RECORD ]</strong>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Type</span><div style="color:var(--text-hero); font-family:var(--font-mono); margin-top:2px;">TXT</div></div>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Host / Name</span><div style="color:var(--text-hero); font-family:var(--font-mono); margin-top:2px;">@ <span style="color:var(--text-tertiary); font-size:0.8rem;">(or ${hostname})</span></div></div>
+          <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">Value / Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid var(--surface-border);">${tokenData.token}</div></div>
         </div>
 
         <div style="background: var(--surface-subtle); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 32px;">
-          <strong style="color: var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_02: HTTP STATIC FILE ]</strong>
-          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Path</span><div style="color: var(--text-hero); font-family:var(--font-mono); margin-top:2px; word-break: break-all;">https://${hostname}/.well-known/sitescanner-verification.txt</div></div>
-          <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid rgba(255,255,255,0.1);">${tokenData.token}</div></div>
+          <strong style="color:var(--text-hero); font-size: 0.95rem; margin-bottom: 12px; display: block; font-family: var(--font-mono);">[ METHOD_02: HTTP STATIC FILE ]</strong>
+          <div style="margin-bottom: 12px;"><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Path</span><div style="color:var(--text-hero); font-family:var(--font-mono); margin-top:2px; word-break: break-all;">https://${hostname}/.well-known/sitescanner-verification.txt</div></div>
+          <div><span style="font-size:0.75rem; color:var(--text-tertiary); text-transform:uppercase; font-weight:bold;">File Content</span><div style="background: rgba(255,255,255,0.05); color:var(--text-primary); padding: 12px; border-radius: var(--radius-sm); font-family:var(--font-mono); font-size:0.9rem; margin-top:6px; word-break: break-all; border: 1px solid var(--surface-border);">${tokenData.token}</div></div>
         </div>
 
         <div style="display:flex; gap: 16px;">
-          <button id="verifyDnsBtn" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border:none; flex:1;">Execute Verification</button>
+          <button id="verifyDnsBtn" class="cta-button" style="background:var(--text-hero); color:var(--bg-inverse); border:none; flex:1;">Execute Verification</button>
           <button id="closeDnsModalBtn" type="button" class="cta-button" style="background:transparent; border-color:var(--surface-border); flex:1;">Cancel Deployment</button>
         </div>
         <div id="dnsErrorMsg" style="color: var(--brand-rose); font-family: var(--font-mono); font-size: 0.85rem; margin-top: 16px; text-align: center; display: none;"></div>
       </div>
     </div>`;
-  document.body.insertAdjacentHTML("beforeend", modalHtml); document.getElementById("closeDnsModalBtn").onclick = () => document.getElementById("dnsModal").remove();
+  document.body.insertAdjacentHTML("beforeend", modalHtml);
+  document.getElementById("closeDnsModalBtn").onclick = () => document.getElementById("dnsModal").remove();
   document.getElementById("verifyDnsBtn").onclick = async () => {
-    const btn = document.getElementById("verifyDnsBtn"); const errMsg = document.getElementById("dnsErrorMsg");
-    btn.disabled = true; btn.textContent = "Querying Infrastructure..."; errMsg.style.display = "none";
+    const btn = document.getElementById("verifyDnsBtn");
+    const errMsg = document.getElementById("dnsErrorMsg");
+    btn.disabled = true;
+    btn.textContent = "Querying Infrastructure...";
+    errMsg.style.display = "none";
     try {
       const checkData = await (await fetch("/api/verification/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname }) })).json();
-      if (checkData.success) { document.getElementById("dnsModal").remove(); onSuccess(); } else { errMsg.textContent = `[ERROR] ${checkData.error}`; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Execute Verification"; }
-    } catch { errMsg.textContent = "[ERROR] Network timeout connecting to infrastructure."; errMsg.style.display = "block"; btn.disabled = false; btn.textContent = "Execute Verification"; }
+      if (checkData.success) {
+        document.getElementById("dnsModal").remove();
+        onSuccess();
+      } else {
+        errMsg.textContent = `[ERROR] ${checkData.error}`;
+        errMsg.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Execute Verification";
+      }
+    } catch {
+      errMsg.textContent = "[ERROR] Network timeout connecting to infrastructure.";
+      errMsg.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Execute Verification";
+    }
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED INTEL SIDEBAR RENDERER
-// Returns the HTML string for Site Profile + Detected Stack cards.
-// Also callable standalone from index.html to show cached scan data.
-// ─────────────────────────────────────────────────────────────────────────────
-window.renderIntelCards = function(data) {
+// Shared Intel Sidebar Cards
+window.renderIntelCards = function (data) {
   const { raw, hostname, score, grade, previousScan } = data;
 
-  const issuer   = raw.tls?.issuer || 'Unknown';
-  const expiry   = raw.tls?.daysUntilExpiry ? `${raw.tls.daysUntilExpiry} days` : 'Invalid';
+  const issuer = raw.tls?.issuer || 'Unknown';
+  const expiry = raw.tls?.daysUntilExpiry ? `${raw.tls.daysUntilExpiry} days` : 'Invalid';
   const serverHeader = raw.headers?.server || 'Hidden';
 
   const stack = [];
-  const srvLower  = serverHeader.toLowerCase();
-  const poweredBy = (raw.headers?.['x-powered-by'] || '').toLowerCase();
-  if (srvLower.includes('cloudflare'))  stack.push('Cloudflare');
-  if (srvLower.includes('nginx'))       stack.push('Nginx');
-  if (srvLower.includes('apache'))      stack.push('Apache');
-  if (raw.headers?.['x-vercel-id'])     stack.push('Vercel Edge');
-  if (poweredBy.includes('next'))       stack.push('Next.js');
-  if (poweredBy.includes('php'))        stack.push('PHP');
-  if (poweredBy.includes('express'))    stack.push('Express');
-  if (raw.headers?.['via']?.toLowerCase().includes('aws')) stack.push('AWS CloudFront');
-  if (stack.length === 0) stack.push('Standard HTTP');
-
-  const stackHtml = stack.map(tech =>
-    `<span style="font-family:var(--font-sans);font-size:0.85rem;color:var(--text-primary);background:var(--bg);border:1px solid var(--surface-border);padding:6px 12px;border-radius:8px;font-weight:500;">${tech}</span>`
-  ).join('');
-
-  const gradeColor = score >= 75 ? 'var(--brand-emerald)' : score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
-  const prevScoreHtml = previousScan
-    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><div style="font-weight:700;font-size:1.25rem;color: var(--text-hero);"><span style="color:${previousScan.score>=75?'var(--brand-emerald)':previousScan.score>=40?'var(--brand-amber)':'var(--brand-rose)'};margin-right:8px;font-size:1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem;color:var(--text-tertiary);">/100</span></div></div>`
-    : `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><span style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);">No prior data</span></div>`;
-
-  return `
-    <!-- Site Profile -->
-    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-        <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;">SITE PROFILE</span>
-        <div style="display:flex;align-items:center;gap:6px;color:var(--brand-emerald);font-weight:700;font-size:0.75rem;font-family:var(--font-mono);">
-          <span style="width:6px;height:6px;border-radius:50%;background:var(--brand-emerald);box-shadow:0 0 8px var(--brand-emerald);"></span> LIVE
-        </div>
-      </div>
-      <a href="/report/${encodeURIComponent(hostname)}" style="text-decoration:none;">
-        <h3 style="font-size:1.8rem;color: var(--text-hero);margin-bottom:8px;word-break:break-all;transition:color 0.2s;" onmouseover="this.style.color='var(--brand-cyan)'" onmouseout="this.style.color='#fff'">${hostname}</h3>
-      </a>
-      <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-tertiary);letter-spacing:0.05em;margin-bottom:28px;">
-        <a href="/report/${encodeURIComponent(hostname)}" style="color:var(--brand-cyan);text-decoration:none;">View full report →</a>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px;font-size:0.95rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
-          <span style="color:var(--text-tertiary);">Hosting</span>
-          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
-          <span style="color:var(--text-tertiary);">TLS issuer</span>
-          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
-          <span style="color:var(--text-tertiary);">Expires in</span>
-          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${expiry}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="color:var(--text-tertiary);">Server</span>
-          <span style="color: var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Detected Stack -->
-    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);margin-top:20px;">
-      <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;display:block;margin-bottom:24px;">DETECTED STACK</span>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;">${stackHtml}</div>
-      ${prevScoreHtml}
-    </div>
-  `;
-};
-
-function renderResults(data, targetId = "results") {
-  const resultsEl = document.getElementById(targetId); if (!resultsEl) return;
-  const { raw, hostname, score, grade, previousScan } = data;
-
-  // ── Persist to localStorage so homepage can display intel cards ──
-  try {
-    localStorage.setItem('lastScannedData', JSON.stringify({ raw, hostname, score, grade, previousScan }));
-  } catch(e) { /* storage quota or private mode — silently skip */ }
-
-  const isGuest = !currentUser;
-  const isPro = currentUser && currentUser.is_pro;
-  
-  const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
-  const circumference = 2 * Math.PI * 40; 
-  const offset = circumference - (score / 100) * circumference;
-
-  let critical = 0, warning = 0, passed = 0;
-  
-  if (!raw.tls?.valid) critical++; else passed++;
-  (raw.headers?.missing || []).forEach(() => critical++); 
-  (raw.headers?.present || []).forEach(() => passed++);
-  if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
-  
-  if (!raw.emailAuth?.isSharedHost) { 
-    if (!raw.emailAuth?.spf) warning++; else passed++; 
-    if (!raw.emailAuth?.dmarc) warning++; else passed++; 
-  } else passed++; 
-  
-  if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
-  
-  const badCookies = (raw.cookies?.cookies || []).filter(c => !c.secure || !c.httpOnly);
-  if (badCookies.length > 0) badCookies.forEach(() => warning++); 
-  else if (raw.cookies?.hasCookies) passed++;
-
-  if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
-
-  // -------------------------------------------------------------
-  // INTELLIGENCE SIDEBAR PARSING (DETECTED STACK & PROFILE)
-  // -------------------------------------------------------------
-  const issuer = raw.tls?.issuer || "Unknown";
-  const expiry = raw.tls?.daysUntilExpiry ? `${raw.tls.daysUntilExpiry} days` : "Invalid";
-  const serverHeader = raw.headers?.server || "Hidden";
-  
-  const stack = [];
   const srvLower = serverHeader.toLowerCase();
-  const poweredBy = (raw.headers?.['x-powered-by'] || "").toLowerCase();
-  
+  const poweredBy = (raw.headers?.['x-powered-by'] || '').toLowerCase();
   if (srvLower.includes('cloudflare')) stack.push('Cloudflare');
   if (srvLower.includes('nginx')) stack.push('Nginx');
   if (srvLower.includes('apache')) stack.push('Apache');
@@ -518,69 +446,107 @@ function renderResults(data, targetId = "results") {
   if (raw.headers?.['via']?.toLowerCase().includes('aws')) stack.push('AWS CloudFront');
   if (stack.length === 0) stack.push('Standard HTTP');
 
-  const stackHtml = stack.map(tech => `<span style="font-family: var(--font-sans); font-size: 0.85rem; color: var(--text-primary); background: var(--bg); border: 1px solid var(--surface-border); padding: 6px 12px; border-radius: 8px; font-weight: 500;">${tech}</span>`).join('');
+  const stackHtml = stack.map(tech =>
+    `<span style="font-family:var(--font-sans);font-size:0.85rem;color:var(--text-primary);background:var(--bg);border:1px solid var(--surface-border);padding:6px 12px;border-radius:8px;font-weight:500;">${tech}</span>`
+  ).join('');
 
-  const prevScoreHtml = previousScan 
-    ? `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><div style="font-family: var(--font-serif); font-weight: 700; font-size: 1.25rem; color: var(--text-hero);"><span style="color: ${previousScan.score >= 75 ? 'var(--brand-emerald)' : previousScan.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'}; margin-right: 8px; font-size: 1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem; color:var(--text-tertiary);">/100</span></div></div>`
-    : `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--surface-border);"><span style="color: var(--text-tertiary); font-size: 0.9rem;">Last audit</span><span style="font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-secondary);">No prior data</span></div>`;
+  const prevScoreHtml = previousScan
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><div style="font-weight:700;font-size:1.25rem;color:var(--text-hero);"><span style="color:${previousScan.score >= 75 ? 'var(--brand-emerald)' : previousScan.score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)'};margin-right:8px;font-size:1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem;color:var(--text-tertiary);">/100</span></div></div>`
+    : `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><span style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);">No prior data</span></div>`;
 
-  const sidebarHtml = `
-    <!-- Box 1: Site Profile -->
-    <div class="card" style="padding: 32px 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em;">SITE PROFILE</span>
-        <div style="display: flex; align-items: center; gap: 6px; color: var(--brand-emerald); font-weight: 700; font-size: 0.75rem; font-family: var(--font-mono);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--brand-emerald); box-shadow: 0 0 8px var(--brand-emerald);"></span> LIVE</div>
+  return `
+    <div class="card" style="padding:32px 24px;box-shadow:var(--shadow-float);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;">SITE PROFILE</span>
+        <div style="display:flex;align-items:center;gap:6px;color:var(--brand-emerald);font-weight:700;font-size:0.75rem;font-family:var(--font-mono);">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--brand-emerald);box-shadow:0 0 8px var(--brand-emerald);"></span> LIVE
+        </div>
       </div>
-      <h3 style="font-family: var(--font-serif); font-size: 1.8rem; color: var(--text-hero); margin-bottom: 32px; word-break: break-all;">${hostname}</h3>
-      
-      <div style="display: flex; flex-direction: column; gap: 16px; font-size: 0.95rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
-          <span style="color: var(--text-tertiary);">Hosting</span>
-          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
+      <a href="/report/${encodeURIComponent(hostname)}" style="text-decoration:none;">
+        <h3 style="font-size:1.8rem;color:var(--text-hero);margin-bottom:8px;word-break:break-all;transition:color 0.2s;" onmouseover="this.style.color='var(--brand-cyan)'" onmouseout="this.style.color='var(--text-hero)'">${hostname}</h3>
+      </a>
+      <div style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.05em;margin-bottom:28px;">
+        <a href="/report/${encodeURIComponent(hostname)}" style="color:var(--brand-cyan);text-decoration:none;">View full report →</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px;font-size:0.95rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--surface-border);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">Hosting</span>
+          <span style="color:var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
-          <span style="color: var(--text-tertiary);">TLS issuer</span>
-          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--surface-border);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">TLS issuer</span>
+          <span style="color:var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${issuer.length > 15 ? issuer.substring(0, 14) + '...' : issuer}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 12px;">
-          <span style="color: var(--text-tertiary);">Expires in</span>
-          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${expiry}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--surface-border);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">Expires in</span>
+          <span style="color:var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${expiry}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-tertiary);">Server</span>
-          <span style="color: var(--text-hero); font-family: var(--font-mono); font-size: 0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:var(--text-tertiary);">Server</span>
+          <span style="color:var(--text-hero);font-family:var(--font-mono);font-size:0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0, 14) + '...' : serverHeader}</span>
         </div>
       </div>
     </div>
 
-    <!-- Box 2: Detected Stack -->
-    <div class="card" style="padding: 32px 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-      <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em; display: block; margin-bottom: 24px;">DETECTED STACK</span>
-      <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-        ${stackHtml}
-      </div>
+    <div class="card" style="padding:32px 24px;box-shadow:var(--shadow-float);margin-top:20px;">
+      <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;display:block;margin-bottom:24px;">DETECTED STACK</span>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">${stackHtml}</div>
       ${prevScoreHtml}
     </div>
   `;
+};
 
-  // -------------------------------------------------------------
-  // MAIN REPORT AREA
-  // -------------------------------------------------------------
+function renderResults(data, targetId = "results") {
+  const resultsEl = document.getElementById(targetId);
+  if (!resultsEl) return;
+  const { raw, hostname, score, grade, previousScan } = data;
+
+  try {
+    localStorage.setItem('lastScannedData', JSON.stringify({ raw, hostname, score, grade, previousScan }));
+  } catch (e) { }
+
+  const isGuest = !currentUser;
+  const isPro = currentUser && currentUser.is_pro;
+
+  const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";
+  const circumference = 2 * Math.PI * 40;
+  const offset = circumference - (score / 100) * circumference;
+
+  let critical = 0, warning = 0, passed = 0;
+
+  if (!raw.tls?.valid) critical++; else passed++;
+  (raw.headers?.missing || []).forEach(() => critical++);
+  (raw.headers?.present || []).forEach(() => passed++);
+  if ((raw.exposedFiles || []).length > 0) critical++; else passed++;
+
+  if (!raw.emailAuth?.isSharedHost) {
+    if (!raw.emailAuth?.spf) warning++; else passed++;
+    if (!raw.emailAuth?.dmarc) warning++; else passed++;
+  } else passed++;
+
+  if (raw.cors?.dangerousCombo) critical++; else if (raw.cors?.wildcardOpen) warning++; else passed++;
+
+  const badCookies = (raw.cookies?.cookies || []).filter(c => !c.secure || !c.httpOnly);
+  if (badCookies.length > 0) badCookies.forEach(() => warning++);
+  else if (raw.cookies?.hasCookies) passed++;
+
+  if (raw.malware?.checked) { if (raw.malware?.flagged) critical++; else passed++; }
+
   let quickStatusHtml = '';
   const isMalware = raw.malware?.checked && raw.malware?.flagged;
-  
+
   if (isMalware || score < 40 || !raw.tls?.valid) {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-rose); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: CRITICAL ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">${isMalware ? 'Infrastructure flagged by Google Safe Browsing. Malware or social engineering present.' : 'Severe vulnerabilities detected. Immediate infrastructure remediation required.'}</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-rose); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color:var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: CRITICAL ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">${isMalware ? 'Infrastructure flagged by Google Safe Browsing. Threat detected.' : 'Critical vulnerabilities identified. Immediate remediation required.'}</span></div></div>`;
   } else if (score < 75) {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-amber); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: WARNING ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">Infrastructure is operational but lacks strict security enforcement policies.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-amber); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color:var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: WARNING ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">Infrastructure is operational but lacks strict browser enforcement headers.</span></div></div>`;
   } else {
-    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-emerald); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color: var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: SECURE ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">No critical exploits detected. Perimeter security policies are strictly enforced.</span></div></div>`;
+    quickStatusHtml = `<div class="card" style="border-left: 4px solid var(--brand-emerald); padding: 20px 32px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;"><div><strong style="color:var(--text-hero); font-family: var(--font-mono); display: block; font-size: 1rem; margin-bottom: 4px;">[ SYSTEM STATE: SECURE ]</strong><span style="color: var(--text-secondary); font-size: 0.95rem;">Perimeter security policies verified and strictly enforced.</span></div></div>`;
   }
 
-  let mainHtml = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:12px;"><span>Security Rating</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.1); padding:4px 10px; border-radius:9999px; font-family:var(--font-mono); font-weight:700;">PRO_UNLOCKED</span>' : ""}</div><div style="margin-top: 8px; font-size: 1rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.25rem; margin-left: 6px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.6;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
+  let mainHtml = quickStatusHtml + `<div class="card hero-grade-card"><div class="hero-grade-left"><div class="grade-ring"><svg viewBox="0 0 96 96" width="90" height="90" xmlns="http://www.w3.org/2000/svg"><circle class="grade-ring-bg" cx="48" cy="48" r="40"></circle><circle class="grade-ring-fg" cx="48" cy="48" r="40" stroke="${gradeHex}" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle></svg><div class="grade-ring-letter" style="color:${gradeHex};">${grade}</div></div><div><div class="hero-score-title" style="display:flex; align-items:center; gap:12px;"><span>Security Rating</span>${isPro ? '<span style="font-size:0.65rem; background:rgba(255,255,255,0.05); color:var(--text-secondary); border:1px solid var(--surface-border); padding:4px 10px; border-radius:9999px; font-family:var(--font-mono); font-weight:700;">PRO_UNLOCKED</span>' : ""}</div><div style="margin-top: 8px; font-size: 1rem; color: var(--text-secondary);"><span style="font-weight: 600;">Overall Security Score:</span> <strong style="color: ${gradeHex}; font-size: 1.25rem; margin-left: 6px;">${score}</strong> <span style="font-size: 0.85rem; opacity: 0.6;">/ 100</span></div></div></div><div class="summary-badges"><span class="summary-pill pill-critical" style="cursor:pointer;" id="filter-critical">${critical} Critical</span><span class="summary-pill pill-warning" style="cursor:pointer;" id="filter-warning">${warning} Warnings</span><span class="summary-pill pill-passed" style="cursor:pointer;" id="filter-passed">${passed} Passed</span></div></div>`;
 
   if (raw.activeDastStatus) {
-    mainHtml += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color: var(--text-hero); font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
+    mainHtml += `<div class="card result-card" data-severity="passed" style="border-color: var(--surface-border); background: var(--surface-subtle); margin-bottom: 24px;"><strong style="color:var(--text-hero); font-size:1.05rem; display:block; margin-bottom:16px;">Active DAST Engine</strong><div class="result-item"><span>Execution Status</span><span class="status-badge" style="background:var(--surface); border: 1px solid var(--surface-border); color:var(--brand-emerald);">${raw.activeDastStatus}</span></div></div>`;
     if (raw.activeDastReport && raw.activeDastReport.site && raw.activeDastReport.site.length > 0) {
       const alerts = raw.activeDastReport.site[0].alerts || [];
       if (alerts.length === 0) {
@@ -607,7 +573,12 @@ function renderResults(data, targetId = "results") {
 
   const tlsSev = !raw.tls?.valid ? "critical" : (raw.tls.daysUntilExpiry < 30 ? "warning" : "passed");
   mainHtml += `<div class="card result-card" data-severity="${tlsSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">SSL/TLS Transport Encryption</strong>`;
-  if (raw.tls?.valid) { const days = raw.tls.daysUntilExpiry; mainHtml += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono); color: var(--text-secondary);">${raw.tls.issuer}</span></div>`; } else mainHtml += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
+  if (raw.tls?.valid) {
+    const days = raw.tls.daysUntilExpiry;
+    mainHtml += `<div class="result-item"><span>Certificate Validity</span><span class="status-badge ${days < 14 ? "status-bad" : days < 30 ? "status-warn" : "status-ok"}">${days} Days Remaining</span></div><div class="result-item"><span>Certificate Authority</span><span style="font-family:var(--font-mono); color: var(--text-secondary);">${raw.tls.issuer}</span></div>`;
+  } else {
+    mainHtml += `<div class="result-item"><span>Status</span><span class="status-badge status-bad">Invalid / Insecure</span></div>`;
+  }
   mainHtml += `</div>`;
 
   const hasMissingHeaders = (raw.headers?.missing || []).length > 0;
@@ -626,22 +597,22 @@ function renderResults(data, targetId = "results") {
   const emailSev = (!raw.emailAuth?.isSharedHost && (!raw.emailAuth?.spf || !raw.emailAuth?.dmarc)) ? "warning" : "passed";
   mainHtml += `<div class="card result-card" data-severity="${emailSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Email Spoofing Protection</strong>`;
   if (raw.emailAuth?.isSharedHost) {
-      mainHtml += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
+    mainHtml += `<div class="result-item"><span>SPF / DMARC</span><span class="status-badge status-ok">Exempt (Shared Host)</span></div>`;
   } else {
-      mainHtml += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
-      mainHtml += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
+    mainHtml += `<div class="result-item"><span>SPF Record</span><span class="status-badge ${raw.emailAuth?.spf ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.spf ? 'Verified' : 'Missing'}</span></div>`;
+    mainHtml += `<div class="result-item"><span>DMARC Record</span><span class="status-badge ${raw.emailAuth?.dmarc ? 'status-ok' : 'status-warn'}">${raw.emailAuth?.dmarc ? 'Verified' : 'Missing'}</span></div>`;
   }
   mainHtml += `</div>`;
 
   if (raw.cookies?.hasCookies) {
-      const cookieSev = badCookies.length > 0 ? "warning" : "passed";
-      mainHtml += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Session & Cookie Security</strong>`;
-      if (badCookies.length === 0) {
-           mainHtml += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
-      } else {
-           badCookies.forEach(c => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
-      }
-      mainHtml += `</div>`;
+    const cookieSev = badCookies.length > 0 ? "warning" : "passed";
+    mainHtml += `<div class="card result-card" data-severity="${cookieSev}"><strong style="font-size:1.05rem; display:block; margin-bottom:12px; color: var(--text-hero);">Session & Cookie Security</strong>`;
+    if (badCookies.length === 0) {
+      mainHtml += `<div class="result-item"><span>Cookie Attributes</span><span class="status-badge status-ok">Secure</span></div>`;
+    } else {
+      badCookies.forEach(c => mainHtml += `<div class="result-item"><span style="font-family:var(--font-mono); color: var(--text-secondary);">${c.name}</span><span class="status-badge status-warn">Insecure Flags</span></div>`);
+    }
+    mainHtml += `</div>`;
   }
 
   const corsSev = raw.cors?.dangerousCombo ? "critical" : (raw.cors?.wildcardOpen ? "warning" : "passed");
@@ -653,15 +624,28 @@ function renderResults(data, targetId = "results") {
 
   if (isGuest) mainHtml += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: var(--text-hero); margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
   else mainHtml += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: var(--text-hero); color: var(--bg-inverse); border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
-  
-  // Assemble final layout — single column, sidebar cards live on homepage only
-  resultsEl.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 16px;">
-      ${mainHtml}
-    </div>
-  `;
 
-  // Attach Event Listeners
+  // Dual layout routing: Homepage vs Report Page
+  const isHomepage = window.location.pathname === '/' || window.location.pathname === '/index.html';
+  if (isHomepage) {
+    resultsEl.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        ${mainHtml}
+      </div>
+    `;
+  } else {
+    resultsEl.innerHTML = `
+      <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
+        <div style="flex: 1 1 60%; min-width: 300px; display: flex; flex-direction: column; gap: 16px;">
+          ${mainHtml}
+        </div>
+        <div style="flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 24px;">
+          ${window.renderIntelCards(data)}
+        </div>
+      </div>
+    `;
+  }
+
   let activeFilter = null;
   const filterCards = (severity) => {
     const cards = document.querySelectorAll(".result-card");
@@ -696,58 +680,55 @@ function renderResults(data, targetId = "results") {
               btn.style.color = "var(--brand-emerald)";
             }
           }
-        }).catch(() => {}); 
+        }).catch(() => { });
     }
 
     document.getElementById("exportPdfBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Executive PDF Export", () => window.location.reload());
-      const btn = document.getElementById("exportPdfBtn"); 
-      btn.disabled = true; 
+      const btn = document.getElementById("exportPdfBtn");
+      btn.disabled = true;
       btn.textContent = "Compiling PDF...";
-      try { 
+      try {
         const hasAi = document.querySelector('.ai-card') ? '?ai=true' : '';
-        const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}${hasAi}`)).blob(); 
-        const url = window.URL.createObjectURL(blob); 
-        const a = document.createElement("a"); 
-        a.href = url; 
-        a.download = `SiteScanner_Audit_${hostname}.pdf`; 
-        document.body.appendChild(a); 
-        a.click(); 
-        a.remove(); 
-        window.URL.revokeObjectURL(url); 
-      } catch { alert("PDF Export Error"); } 
+        const blob = await (await fetch(`/api/download-pdf/${encodeURIComponent(hostname)}${hasAi}`)).blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `SiteScanner_Audit_${hostname}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } catch { alert("PDF Export Error"); }
       finally { btn.disabled = false; btn.textContent = "Export PDF Report"; }
     });
-    
+
     document.getElementById("explainBtn")?.addEventListener("click", async () => {
       const explainBtn = document.getElementById("explainBtn");
       explainBtn.disabled = true;
       explainBtn.innerHTML = '<span style="display:inline-block; animation: pulse 1.5s infinite;">Processing...</span>';
 
-      const container = document.getElementById("reportContainer"); 
-      
+      const container = document.getElementById("reportContainer");
       container.style.opacity = "0";
       container.style.transform = "translateY(-15px)";
       container.style.transition = "all 0.4s var(--ease-float)";
-      
       container.innerHTML = '<div class="card" style="text-align:center; padding:40px; color:var(--text-secondary); font-family: var(--font-mono); font-size: 0.9rem;">Compiling standard rule-based output...</div>';
-      
+
       setTimeout(() => {
         container.style.opacity = "1";
         container.style.transform = "translateY(0)";
       }, 50);
-      
-      try {
-        const resData = await (await fetch("/api/explain", { 
-          method: "POST", 
-          headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify({ raw, hostname, mode: 'standard' }) 
-        })).json();
-        
-        const parseMD = (text) => window.marked ? marked.parse(text) : text;
 
+      try {
+        const resData = await (await fetch("/api/explain", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw, hostname, mode: 'standard' })
+        })).json();
+
+        const parseMD = (text) => window.marked ? marked.parse(text) : text;
         let reportsHtml = `<div class="card" style="animation: floatUpFade 0.6s var(--ease-float);"><strong style="display:block; font-size:1.15rem; font-weight:700; margin-bottom:16px; color: var(--text-hero);">Standard Security Report</strong><div class="report">${parseMD(resData.ruleBasedReport)}</div></div>`;
-        
+
         reportsHtml += `
           <div id="aiReportContainer" style="animation: floatUpFade 0.7s var(--ease-float);">
             <div class="card" style="text-align: center; border: 1px solid var(--surface-border); padding: 48px 32px; background: var(--surface-subtle); margin-top: 24px;">
@@ -766,14 +747,13 @@ function renderResults(data, targetId = "results") {
           explainBtn.style.color = 'var(--text-secondary)';
           explainBtn.style.border = '1px solid var(--surface-border)';
           container.style.opacity = "1";
-          
+
           document.getElementById("generateAiBtn")?.addEventListener("click", async () => {
             const aiContainer = document.getElementById("aiReportContainer");
-            
             aiContainer.style.opacity = "0";
             aiContainer.style.transform = "translateY(-15px)";
             aiContainer.style.transition = "all 0.4s var(--ease-float)";
-            
+
             setTimeout(() => {
               aiContainer.innerHTML = '<div class="card" style="text-align:center; padding:64px 32px; border: 1px solid var(--surface-border); background: var(--surface-subtle);"><h3 style="color: var(--text-hero); margin-bottom:12px; animation: pulse 1.5s infinite; font-size: 1.2rem;">Executing Analysis Engine...</h3><p style="color:var(--text-tertiary); font-size:0.95rem; font-family: var(--font-mono);">Parsing infrastructure and runtime telemetry payloads.</p></div>';
               aiContainer.style.opacity = "1";
@@ -801,28 +781,26 @@ function renderResults(data, targetId = "results") {
                 `;
               } else if (aiRes.aiError) {
                 if (currentUser && currentUser.is_pro) {
-                   aiHtml = `<div class="card ai-error" style="border-left: 4px solid var(--brand-rose); padding: 32px; margin-top: 24px;"><strong style="color: var(--text-primary); font-size: 1.1rem; display: block; margin-bottom: 8px;">Analysis Engine Fault</strong><p style="color: var(--text-secondary); font-size: 0.95rem;">${aiRes.aiError}</p></div>`;
+                  aiHtml = `<div class="card ai-error" style="border-left: 4px solid var(--brand-rose); padding: 32px; margin-top: 24px;"><strong style="color: var(--text-primary); font-size: 1.1rem; display: block; margin-bottom: 8px;">Analysis Engine Fault</strong><p style="color: var(--text-secondary); font-size: 0.95rem;">${aiRes.aiError}</p></div>`;
                 } else {
-                   aiHtml = `<div class="card ai-error" style="border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; text-align: center; margin-top: 24px;"><strong style="color: var(--text-hero); font-size: 1.2rem; display: block; margin-bottom: 12px;">Advanced Analysis Locked</strong><p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto;">Pro authorization is required to access the generative security engine.</p><button onclick="window.launchRazorpayCheckout('Advanced AppSec Analysis', () => window.location.reload())" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border: none; max-width: 250px; margin: 0 auto;">Authorize Upgrade</button></div>`;
+                  aiHtml = `<div class="card ai-error" style="border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; text-align: center; margin-top: 24px;"><strong style="color: var(--text-hero); font-size: 1.2rem; display: block; margin-bottom: 12px;">Advanced Analysis Locked</strong><p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto;">Pro authorization is required to access the generative security engine.</p><button onclick="window.launchRazorpayCheckout('Advanced AppSec Analysis', () => window.location.reload())" class="cta-button" style="background: var(--text-hero); color: var(--bg-inverse); border: none; max-width: 250px; margin: 0 auto;">Authorize Upgrade</button></div>`;
                 }
               }
-              
+
               setTimeout(() => {
                 aiContainer.style.opacity = "0";
                 setTimeout(() => {
                   aiContainer.innerHTML = aiHtml;
                   aiContainer.style.opacity = "1";
                 }, 400);
-              }, 600); 
-              
+              }, 600);
             } catch (err) {
-               aiContainer.innerHTML = `<div class="card ai-error" style="margin-top: 24px;">System Error: ${err.message}</div>`;
+              aiContainer.innerHTML = `<div class="card ai-error" style="margin-top: 24px;">System Error: ${err.message}</div>`;
             }
           });
         }, 400);
-
-      } catch (err) { 
-        container.innerHTML = `<div class="card" style="margin-top: 24px;">Execution fault: ${err.message}</div>`; 
+      } catch (err) {
+        container.innerHTML = `<div class="card" style="margin-top: 24px;">Execution fault: ${err.message}</div>`;
         explainBtn.disabled = false;
         explainBtn.innerHTML = 'Generate Action Plan';
       }
@@ -830,8 +808,8 @@ function renderResults(data, targetId = "results") {
 
     document.getElementById("monitorBtn")?.addEventListener("click", async () => {
       if (!currentUser.is_pro) return window.launchRazorpayCheckout("Automated Monitoring", () => window.location.reload());
-      const btn = document.getElementById("monitorBtn"); 
-      
+      const btn = document.getElementById("monitorBtn");
+
       if (isMonitoring) {
         if (document.getElementById("disableModal")) document.getElementById("disableModal").remove();
         const modalHtml = `
@@ -847,23 +825,21 @@ function renderResults(data, targetId = "results") {
           </div>
         `;
         document.body.insertAdjacentHTML("beforeend", modalHtml);
-        
         document.getElementById("cancelDisableBtn").onclick = () => document.getElementById("disableModal").remove();
-        
         document.getElementById("confirmDisableBtn").onclick = async () => {
-           document.getElementById("disableModal").remove();
-           btn.disabled = true;
-           btn.textContent = "Terminating...";
-           try {
-             const res = await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
-             const data = await res.json();
-             if (data.error) throw new Error(data.error);
-             isMonitoring = false;
-             btn.textContent = "Configure Alerts"; 
-             btn.style.borderColor = "var(--surface-border)";
-             btn.style.color = "#fff";
-           } catch (err) { alert(err.message); btn.textContent = "Telemetry Active"; }
-           btn.disabled = false;
+          document.getElementById("disableModal").remove();
+          btn.disabled = true;
+          btn.textContent = "Terminating...";
+          try {
+            const res = await fetch("/api/monitors/toggle-domain", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hostname, isActive: false }) });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            isMonitoring = false;
+            btn.textContent = "Configure Alerts";
+            btn.style.borderColor = "var(--surface-border)";
+            btn.style.color = "var(--text-hero)";
+          } catch (err) { alert(err.message); btn.textContent = "Telemetry Active"; }
+          btn.disabled = false;
         };
       } else {
         btn.disabled = true;
@@ -873,7 +849,7 @@ function renderResults(data, targetId = "results") {
           const data = await res.json();
           if (data.error) throw new Error(data.error);
           isMonitoring = true;
-          btn.textContent = "Telemetry Active"; 
+          btn.textContent = "Telemetry Active";
           btn.style.borderColor = "var(--brand-emerald)";
           btn.style.color = "var(--brand-emerald)";
         } catch (err) { alert(err.message); btn.textContent = "Configure Alerts"; }
@@ -891,33 +867,31 @@ function renderResults(data, targetId = "results") {
           renderResults(freshData, targetId);
         }
       } catch (err) { console.error("[Polling Error]", err); }
-    }, 10000); 
+    }, 10000);
   }
 }
 window.authReady = checkAuthSession();
 
 window.activeLoadingInterval = null;
 
-window.showLoadingState = function(container, mode) {
+window.showLoadingState = function (container, mode) {
   clearInterval(window.activeLoadingInterval);
   const isActive = mode === 'active';
   const color = isActive ? 'var(--brand-emerald)' : 'var(--brand-cyan)';
   const typeText = isActive ? 'ACTIVE DAST' : 'STANDARD AUDIT';
 
-  // Inject a quick CSS spinner animation if it doesn't exist
   if (!document.getElementById('spinner-style')) {
     document.head.insertAdjacentHTML('beforeend', '<style id="spinner-style">@keyframes spin { 100% { transform: rotate(360deg); } }</style>');
   }
 
   container.innerHTML = `
-
     <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; animation: floatUpFade 0.6s var(--ease-float) forwards; opacity: 0; animation-delay: 0.1s;">
       
       <!-- Left Pane: Checklist & Progress -->
       <div class="card" style="padding: 40px; border-color: var(--surface-border);">
         <div style="display: flex; align-items: center; justify-content: space-between;">
           <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.05em; text-transform: uppercase;">[ RUNNING ${typeText} ]</span>
-          <button style="background: transparent; border: 1px solid var(--surface-border); color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.7rem; padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer; letter-spacing: 0.05em; transition: color 0.2s, border-color 0.2s;" onmouseover="this.style.color='#fff';this.style.borderColor='var(--surface-border)'" onmouseout="this.style.color='var(--text-tertiary)';this.style.borderColor='var(--surface-border)'" onclick="window.location.reload()">CANCEL</button>
+          <button style="background: transparent; border: 1px solid var(--surface-border); color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.7rem; padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer; letter-spacing: 0.05em; transition: color 0.2s, border-color 0.2s;" onmouseover="this.style.color='var(--text-hero)';this.style.borderColor='var(--surface-border-hover)'" onmouseout="this.style.color='var(--text-tertiary)';this.style.borderColor='var(--surface-border)'" onclick="window.location.reload()">CANCEL</button>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 16px; margin-bottom: 24px;">
           <h2 id="loadingHeadline" style="font-size: 2.2rem; font-weight: 700; color: var(--text-hero); letter-spacing: -0.02em;">Initializing engine</h2>
@@ -927,7 +901,6 @@ window.showLoadingState = function(container, mode) {
           <div id="scanProgressBar" style="height: 100%; width: 0%; background: ${color}; transition: width 0.3s ease;"></div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;" id="checklistGrid">
-           <!-- Dynamically Populated -->
         </div>
       </div>
       
@@ -950,7 +923,6 @@ window.showLoadingState = function(container, mode) {
   const headline = document.getElementById("loadingHeadline");
   const checklistGrid = document.getElementById("checklistGrid");
 
-  // Define scan stages based on audit type
   const auditSteps = isActive ? [
     { log: "resolving edge routing parameters", head: "Target Acquisition", checkId: "c1", checkName: "Target Acquisition" },
     { log: "bypassing standard WAF heuristics", head: "WAF Evasion", checkId: "c2", checkName: "WAF Evasion" },
@@ -967,7 +939,6 @@ window.showLoadingState = function(container, mode) {
     { log: "csp enforced · xss protection valid", head: "Compiling Report", checkId: "c6", checkName: "Policy Verification" }
   ];
 
-  // Initialize Checklist UI
   checklistGrid.innerHTML = auditSteps.map(s => `
     <div id="${s.checkId}" style="display: flex; align-items: center; gap: 12px; color: var(--text-tertiary); font-size: 0.9rem;">
       <span class="icon" style="font-family: var(--font-mono);">○</span> <span class="text">${s.checkName}</span>
@@ -983,7 +954,7 @@ window.showLoadingState = function(container, mode) {
         el.querySelector('.icon').innerHTML = `<span style="color: ${color};">✓</span>`;
         el.querySelector('.text').style.fontWeight = 'normal';
       } else if (i === currentIndex) {
-        el.style.color = '#fff';
+        el.style.color = 'var(--text-hero)';
         el.querySelector('.icon').innerHTML = `<span style="display:inline-block; animation:spin 1.5s linear infinite; color: ${color}; font-size: 1.2rem; line-height: 1;">⟳</span>`;
         el.querySelector('.text').style.fontWeight = '600';
       }
@@ -993,29 +964,29 @@ window.showLoadingState = function(container, mode) {
   updateChecklist(0);
 
   window.activeLoadingInterval = setInterval(() => {
-      const increment = (99 - progress) * 0.04; 
-      progress += Math.max(increment, 0.2);
-      if (progress >= 99) progress = 99;
-      
-      if (bar) bar.style.width = `${progress}%`;
-      if (percent) percent.textContent = `${Math.floor(progress)}%`;
+    const increment = (99 - progress) * 0.04;
+    progress += Math.max(increment, 0.2);
+    if (progress >= 99) progress = 99;
 
-      const expectedStep = Math.floor((progress / 100) * auditSteps.length);
-      if (expectedStep > step && step < auditSteps.length) {
-        const time = new Date().toLocaleTimeString('en-GB');
-        const logEntry = auditSteps[step];
-        
-        if (logConsole) {
-          const div = document.createElement('div');
-          div.innerHTML = `<span style="color:var(--text-tertiary)">${time}</span> <span style="color:${color}">${logEntry.log}</span>`;
-          logConsole.appendChild(div);
-          logConsole.scrollTop = logConsole.scrollHeight;
-        }
-        
-        if (headline) headline.textContent = logEntry.head;
-        
-        step++;
-        updateChecklist(step);
+    if (bar) bar.style.width = `${progress}%`;
+    if (percent) percent.textContent = `${Math.floor(progress)}%`;
+
+    const expectedStep = Math.floor((progress / 100) * auditSteps.length);
+    if (expectedStep > step && step < auditSteps.length) {
+      const time = new Date().toLocaleTimeString('en-GB');
+      const logEntry = auditSteps[step];
+
+      if (logConsole) {
+        const div = document.createElement('div');
+        div.innerHTML = `<span style="color:var(--text-tertiary)">${time}</span> <span style="color:${color}">${logEntry.log}</span>`;
+        logConsole.appendChild(div);
+        logConsole.scrollTop = logConsole.scrollHeight;
       }
+
+      if (headline) headline.textContent = logEntry.head;
+
+      step++;
+      updateChecklist(step);
+    }
   }, 200);
 };

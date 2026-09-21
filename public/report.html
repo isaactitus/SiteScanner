@@ -1,32 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Security Audit Report</title>
-  <script>if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');</script>
+  <script>if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');</script>
   <link rel="stylesheet" href="/style.css" />
   <!-- Markdown Parser -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
+
 <body>
   <div class="app-container">
     <main>
-      <section class="scan-card">
-        <div class="tab-group">
-          <button id="tabFull" class="tab-btn active" type="button">Standard Audit (Passive)</button>
-          <button id="tabActive" class="tab-btn" type="button" style="color: var(--brand-emerald);">Active DAST (Pro)</button>
+      <section class="scan-card" style="margin-bottom: 32px;">
+        <div class="tab-group" style="display: flex; gap: 12px; margin-bottom: 20px;">
+          <button id="tabFull" class="tab-btn active cta-button" type="button"
+            style="width: auto; padding: 8px 20px; font-size: 0.85rem;">Standard Audit (Passive)</button>
+          <button id="tabActive" class="tab-btn cta-button" type="button"
+            style="width: auto; padding: 8px 20px; font-size: 0.85rem; color: var(--brand-emerald); border-color: rgba(52, 211, 153, 0.3);">Active
+            DAST (Pro)</button>
         </div>
         <form id="scanForm">
-          <div class="input-group">
-            <input id="targetUrl" type="text" class="scan-input" placeholder="example.com" spellcheck="false" autocomplete="off" required />
-            <button id="submitScanBtn" type="submit" class="scan-btn">Run Standard Audit</button>
+          <div class="input-group" style="display: flex; gap: 12px;">
+            <input id="targetUrl" type="text" class="scan-input omnibox-input card" placeholder="example.com"
+              spellcheck="false" autocomplete="off" required style="flex: 1;" />
+            <button id="submitScanBtn" type="submit" class="scan-btn cta-button"
+              style="width: auto; padding: 14px 28px; background: var(--text-hero); color: var(--bg-inverse); border: none;">Run
+              Standard Audit</button>
           </div>
-          <div class="scan-options">
-            <label class="checkbox-label">
-              <input type="checkbox" id="ownershipConfirmed" checked required />
+          <div class="scan-options" style="margin-top: 14px;">
+            <label class="checkbox-label"
+              style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-tertiary); cursor: pointer;">
+              <input type="checkbox" id="ownershipConfirmed" checked required
+                style="accent-color: var(--brand-cyan);" />
               <span>I confirm authorization to scan this domain</span>
             </label>
           </div>
@@ -39,98 +49,99 @@
       </section>
     </main>
   </div>
-  
+
   <script src="/render.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", async () => {
-      let scanMode = "full"; 
+      window.initSiteHeader();
+      window.initNavDock();
+
+      let scanMode = "full";
       const pathParts = window.location.pathname.split("/report/");
       const targetDomain = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : "";
-      const input = document.getElementById("targetUrl"); 
-      const resultsEl = document.getElementById("results"); 
+      const input = document.getElementById("targetUrl");
+      const resultsEl = document.getElementById("results");
       const submitBtn = document.getElementById("submitScanBtn");
-      const tabFull = document.getElementById("tabFull"); 
+      const tabFull = document.getElementById("tabFull");
       const tabActive = document.getElementById("tabActive");
-      
-      function updateTabs(activeBtn) { 
-        [tabFull, tabActive].forEach(b => b.classList.remove('active')); 
-        activeBtn.classList.add('active'); 
-        if (scanMode === 'active') { 
-          submitBtn.textContent = 'Launch Active Exploits'; 
-          submitBtn.style.background = 'var(--brand-emerald)'; 
-          submitBtn.style.color = '#fff'; 
-        } else { 
-          submitBtn.textContent = 'Run Standard Audit'; 
-          submitBtn.style.background = '#fff'; 
-          submitBtn.style.color = '#090d16'; 
-        } 
+
+      function updateTabs(activeBtn) {
+        [tabFull, tabActive].forEach(b => b && b.classList.remove('active'));
+        activeBtn.classList.add('active');
+        if (scanMode === 'active') {
+          submitBtn.textContent = 'Launch Active Exploits';
+          submitBtn.style.background = 'var(--brand-emerald)';
+          submitBtn.style.color = '#000';
+        } else {
+          submitBtn.textContent = 'Run Standard Audit';
+          submitBtn.style.background = 'var(--text-hero)';
+          submitBtn.style.color = 'var(--bg-inverse)';
+        }
       }
-      
-      tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); }); 
+
+      tabFull.addEventListener("click", () => { scanMode = "full"; updateTabs(tabFull); });
       tabActive.addEventListener("click", () => { scanMode = "active"; updateTabs(tabActive); });
 
       if (targetDomain) {
-        input.value = targetDomain; document.title = `SiteScanner Audit — ${targetDomain}`;
-        try { 
-          const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`); 
-          if (!res.ok) throw new Error("No previous scan found."); 
-          const reportData = await res.json(); 
-          if (window.authReady) await window.authReady; 
-          renderResults(reportData); 
-        } catch (err) { 
-          resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Not Loaded</div>`; 
+        input.value = targetDomain;
+        document.title = `SiteScanner Audit — ${targetDomain}`;
+        try {
+          const res = await fetch(`/api/report/${encodeURIComponent(targetDomain)}`);
+          if (!res.ok) throw new Error("No previous scan found.");
+          const reportData = await res.json();
+          if (window.authReady) await window.authReady;
+          renderResults(reportData);
+        } catch (err) {
+          resultsEl.innerHTML = `<div class="card" style="border-color: var(--brand-amber); text-align: center; padding: 32px;">Audit Log Not Available</div>`;
         }
       }
-      
+
       document.getElementById("scanForm").addEventListener("submit", async (e) => {
-        e.preventDefault(); 
-        const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, ""); 
+        e.preventDefault();
+        const url = input.value.trim().replace(/^(https?:\/\/)+/i, "").replace(/\/+$/, "");
         if (!url) return;
 
         if (scanMode === 'active') {
           if (!currentUser || !currentUser.is_pro) return window.launchRazorpayCheckout("Active DAST Scanning", () => window.location.reload());
           return window.showDnsVerificationModal(url, async () => {
-            submitBtn.disabled = true; 
-            
-            // --- NEW: Trigger loading animation for DAST ---
+            submitBtn.disabled = true;
             if (window.showLoadingState) window.showLoadingState(resultsEl, 'active');
 
-            try { 
-              const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json(); 
+            try {
+              const data = await (await fetch("/api/scan-active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) })).json();
               clearInterval(window.activeLoadingInterval);
-              if (data.error) throw new Error(data.error); 
-              history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
-              renderResults(data); 
-            } catch (err) { 
+              if (data.error) throw new Error(data.error);
+              history.replaceState(null, "", `/report/${encodeURIComponent(url)}`);
+              renderResults(data);
+            } catch (err) {
               clearInterval(window.activeLoadingInterval);
-              resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
-            } finally { 
-              submitBtn.disabled = false; 
-              submitBtn.textContent = 'Launch Active Exploits'; 
+              resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose); color:var(--brand-rose);">${err.message}</div>`;
+            } finally {
+              submitBtn.disabled = false;
+              submitBtn.textContent = 'Launch Active Exploits';
             }
           });
         }
-        
-        submitBtn.disabled = true; 
-        
-        // --- NEW: Trigger loading animation for Standard Audit ---
+
+        submitBtn.disabled = true;
         if (window.showLoadingState) window.showLoadingState(resultsEl, 'full');
 
-        try { 
-          const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json(); 
+        try {
+          const data = await (await fetch("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ownershipConfirmed: true, listPublicly: true }) })).json();
           clearInterval(window.activeLoadingInterval);
-          if (data.error) throw new Error(data.error); 
-          history.replaceState(null, "", `/report/${encodeURIComponent(url)}`); 
-          renderResults(data); 
-        } catch (err) { 
+          if (data.error) throw new Error(data.error);
+          history.replaceState(null, "", `/report/${encodeURIComponent(url)}`);
+          renderResults(data);
+        } catch (err) {
           clearInterval(window.activeLoadingInterval);
-          resultsEl.innerHTML = `<div class="card">${err.message}</div>`; 
-        } finally { 
-          submitBtn.disabled = false; 
+          resultsEl.innerHTML = `<div class="card" style="border-color:var(--brand-rose); color:var(--brand-rose);">${err.message}</div>`;
+        } finally {
+          submitBtn.disabled = false;
           submitBtn.textContent = 'Run Standard Audit';
         }
       });
     });
   </script>
 </body>
+
 </html>
