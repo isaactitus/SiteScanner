@@ -344,7 +344,7 @@ window.renderIntelCards = function(data) {
     </div>
 
     <!-- Detected Stack -->
-    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);margin-top:20px;">
       <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;display:block;margin-bottom:24px;">DETECTED STACK</span>
       <div style="display:flex;flex-wrap:wrap;gap:10px;">${stackHtml}</div>
       ${prevScoreHtml}
