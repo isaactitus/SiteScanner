@@ -565,46 +565,124 @@ window.showLoadingState = function(container, mode) {
   clearInterval(window.activeLoadingInterval);
   const isActive = mode === 'active';
   const color = isActive ? 'var(--brand-emerald)' : 'var(--brand-cyan)';
-  const title = isActive ? 'Deploying Active Payloads' : 'Executing Perimeter Scan';
+  const typeText = isActive ? 'ACTIVE DAST' : 'STANDARD AUDIT';
+
+  // Inject a quick CSS spinner animation if it doesn't exist
+  if (!document.getElementById('spinner-style')) {
+    document.head.insertAdjacentHTML('beforeend', '<style id="spinner-style">@keyframes spin { 100% { transform: rotate(360deg); } }</style>');
+  }
 
   container.innerHTML = `
-    <div class="card" style="padding: 64px 32px; text-align: center; border-color: var(--surface-border); background: var(--surface-subtle); position: relative; overflow: hidden; animation: floatUpFade 0.5s var(--ease-float) forwards;">
-      <h3 style="color: #fff; font-size: 1.3rem; font-weight: 700; margin-bottom: 32px; letter-spacing: -0.02em;">${title}</h3>
-      <div style="width: 100%; max-width: 400px; height: 4px; background: var(--surface); margin: 0 auto; border-radius: 9999px; overflow: hidden; border: 1px solid var(--surface-border);">
-        <div id="scanProgressBar" style="width: 0%; height: 100%; background: ${color}; transition: width 0.4s var(--ease-float);"></div>
+    <div style="background: var(--surface-subtle); padding: 16px 24px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; animation: floatUpFade 0.4s var(--ease-float) forwards;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 14px; height: 14px; background: ${color}; border-radius: 3px; animation: pulse 2s infinite;"></div>
+        <span style="font-family: var(--font-mono); font-size: 1.05rem; color: #fff; font-weight: 700;">Scanning target infrastructure...</span>
       </div>
-      <div id="scanProgressText" style="margin-top: 20px; font-family: var(--font-mono); font-size: 0.95rem; font-weight: 600; color: #fff;">0%</div>
-      <div id="scanProgressLog" style="margin-top: 16px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-tertiary); min-height: 20px; transition: opacity 0.2s; text-transform: uppercase; letter-spacing: 0.05em;">[ INITIALIZING PROTOCOL ]</div>
+      <button class="cta-button" style="padding: 6px 16px; font-size: 0.8rem; width: auto; background: transparent; border-color: var(--surface-border);" onclick="window.location.reload()">Cancel</button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; animation: floatUpFade 0.6s var(--ease-float) forwards; opacity: 0; animation-delay: 0.1s;">
+      
+      <!-- Left Pane: Checklist & Progress -->
+      <div class="card" style="padding: 40px; border-color: var(--surface-border);">
+        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.05em; text-transform: uppercase;">[ RUNNING ${typeText} ]</span>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 16px; margin-bottom: 24px;">
+          <h2 id="loadingHeadline" style="font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Initializing engine</h2>
+          <span id="loadingPercent" style="font-family: var(--font-mono); font-size: 2.5rem; color: ${color}; font-weight: 800; letter-spacing: -0.05em;">0%</span>
+        </div>
+        <div style="width: 100%; height: 4px; background: var(--bg); border: 1px solid var(--surface-border); border-radius: 9999px; margin-bottom: 40px; overflow: hidden;">
+          <div id="scanProgressBar" style="height: 100%; width: 0%; background: ${color}; transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;" id="checklistGrid">
+           <!-- Dynamically Populated -->
+        </div>
+      </div>
+      
+      <!-- Right Pane: Live Terminal Log -->
+      <div class="card" style="padding: 24px; display: flex; flex-direction: column; border-color: var(--surface-border); background: var(--bg);">
+        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.05em; margin-bottom: 16px;">LIVE LOG</span>
+        <div id="liveLogConsole" style="flex: 1; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.8; overflow-y: auto; max-height: 280px; display: flex; flex-direction: column; gap: 4px;">
+          <div style="color: var(--text-tertiary);">${new Date().toLocaleTimeString('en-GB')} [SYSTEM] Engine spinning up...</div>
+        </div>
+      </div>
+
     </div>
   `;
 
   let progress = 0;
-  const logs = isActive 
-    ? ["[ BYPASSING WAF CONSTRAINTS ]", "[ INJECTING REFLECTION PAYLOADS ]", "[ EVALUATING SQLI VECTORS ]", "[ ANALYZING CORS BOUNDARIES ]", "[ MAPPING SURFACE AREA ]", "[ COMPILING THREAT INTELLIGENCE ]"]
-    : ["[ RESOLVING TLS INFRASTRUCTURE ]", "[ EVALUATING DNS PARAMETERS ]", "[ PARSING HTTP HEADERS ]", "[ SCANNING SOURCE REPOSITORIES ]", "[ ANALYZING SESSION MECHANICS ]", "[ FINALIZING OUTPUT BUFFER ]"];
-  
-  let logIndex = 0;
+  let step = 0;
   const bar = document.getElementById("scanProgressBar");
-  const text = document.getElementById("scanProgressText");
-  const logEl = document.getElementById("scanProgressLog");
+  const percent = document.getElementById("loadingPercent");
+  const logConsole = document.getElementById("liveLogConsole");
+  const headline = document.getElementById("loadingHeadline");
+  const checklistGrid = document.getElementById("checklistGrid");
+
+  // Define scan stages based on audit type
+  const auditSteps = isActive ? [
+    { log: "resolving edge routing parameters", head: "Target Acquisition", checkId: "c1", checkName: "Target Acquisition" },
+    { log: "bypassing standard WAF heuristics", head: "WAF Evasion", checkId: "c2", checkName: "WAF Evasion" },
+    { log: "injecting reflection payload tests", head: "XSS Vulnerability", checkId: "c3", checkName: "XSS Analysis" },
+    { log: "evaluating sql boundary vectors", head: "SQLi Probing", checkId: "c4", checkName: "SQLi Probing" },
+    { log: "mapping sensitive endpoint exposure", head: "Endpoint Mapping", checkId: "c5", checkName: "Endpoint Mapping" },
+    { log: "compiling contextual threat intelligence", head: "Generating Intelligence", checkId: "c6", checkName: "Threat Intelligence" }
+  ] : [
+    { log: "resolve target domain routing", head: "Resolving DNS", checkId: "c1", checkName: "DNS Resolution" },
+    { log: "tls handshake ok · verifying cipher", head: "Analysing certificates", checkId: "c2", checkName: "TLS Certificate" },
+    { log: "dns txt spf=true dmarc=true", head: "Verifying email auth", checkId: "c3", checkName: "Email Authentication" },
+    { log: "probe /.env /.git → 404", head: "Scanning file paths", checkId: "c4", checkName: "Exposed Files" },
+    { log: "GET / → 200 · reading headers", head: "Analysing headers", checkId: "c5", checkName: "HTTP Headers" },
+    { log: "csp enforced · xss protection valid", head: "Compiling Report", checkId: "c6", checkName: "Policy Verification" }
+  ];
+
+  // Initialize Checklist UI
+  checklistGrid.innerHTML = auditSteps.map(s => `
+    <div id="${s.checkId}" style="display: flex; align-items: center; gap: 12px; color: var(--text-tertiary); font-size: 0.9rem;">
+      <span class="icon" style="font-family: var(--font-mono);">○</span> <span class="text">${s.checkName}</span>
+    </div>
+  `).join('');
+
+  function updateChecklist(currentIndex) {
+    auditSteps.forEach((s, i) => {
+      const el = document.getElementById(s.checkId);
+      if (!el) return;
+      if (i < currentIndex) {
+        el.style.color = 'var(--text-secondary)';
+        el.querySelector('.icon').innerHTML = `<span style="color: ${color};">✓</span>`;
+        el.querySelector('.text').style.fontWeight = 'normal';
+      } else if (i === currentIndex) {
+        el.style.color = '#fff';
+        el.querySelector('.icon').innerHTML = `<span style="display:inline-block; animation:spin 1.5s linear infinite; color: ${color}; font-size: 1.2rem; line-height: 1;">⟳</span>`;
+        el.querySelector('.text').style.fontWeight = '600';
+      }
+    });
+  }
+
+  updateChecklist(0);
 
   window.activeLoadingInterval = setInterval(() => {
-      const increment = (99 - progress) * 0.05; 
-      progress += Math.max(increment, 0.1);
-      if (progress >= 99.9) progress = 99.9;
+      const increment = (99 - progress) * 0.04; 
+      progress += Math.max(increment, 0.2);
+      if (progress >= 99) progress = 99;
       
       if (bar) bar.style.width = `${progress}%`;
-      if (text) text.textContent = `${Math.floor(progress)}%`;
+      if (percent) percent.textContent = `${Math.floor(progress)}%`;
 
-      if (Math.random() > 0.90 && logIndex < logs.length) {
-          if (logEl) {
-            logEl.style.opacity = 0;
-            setTimeout(() => {
-              logEl.textContent = logs[logIndex];
-              logEl.style.opacity = 1;
-              logIndex++;
-            }, 200);
-          }
+      const expectedStep = Math.floor((progress / 100) * auditSteps.length);
+      if (expectedStep > step && step < auditSteps.length) {
+        const time = new Date().toLocaleTimeString('en-GB');
+        const logEntry = auditSteps[step];
+        
+        if (logConsole) {
+          const div = document.createElement('div');
+          div.innerHTML = `<span style="color:var(--text-tertiary)">${time}</span> <span style="color:${color}">${logEntry.log}</span>`;
+          logConsole.appendChild(div);
+          logConsole.scrollTop = logConsole.scrollHeight;
+        }
+        
+        if (headline) headline.textContent = logEntry.head;
+        
+        step++;
+        updateChecklist(step);
       }
   }, 200);
 };
