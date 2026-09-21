@@ -573,19 +573,15 @@ window.showLoadingState = function(container, mode) {
   }
 
   container.innerHTML = `
-    <div style="background: var(--surface-subtle); padding: 16px 24px; border-radius: var(--radius-md); border: 1px solid var(--surface-border); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; animation: floatUpFade 0.4s var(--ease-float) forwards;">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="width: 14px; height: 14px; background: ${color}; border-radius: 3px; animation: pulse 2s infinite;"></div>
-        <span style="font-family: var(--font-mono); font-size: 1.05rem; color: #fff; font-weight: 700;">Scanning target infrastructure...</span>
-      </div>
-      <button class="cta-button" style="padding: 6px 16px; font-size: 0.8rem; width: auto; background: transparent; border-color: var(--surface-border);" onclick="window.location.reload()">Cancel</button>
-    </div>
 
     <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; animation: floatUpFade 0.6s var(--ease-float) forwards; opacity: 0; animation-delay: 0.1s;">
       
       <!-- Left Pane: Checklist & Progress -->
       <div class="card" style="padding: 40px; border-color: var(--surface-border);">
-        <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.05em; text-transform: uppercase;">[ RUNNING ${typeText} ]</span>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.05em; text-transform: uppercase;">[ RUNNING ${typeText} ]</span>
+          <button style="background: transparent; border: 1px solid var(--surface-border); color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.7rem; padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer; letter-spacing: 0.05em; transition: color 0.2s, border-color 0.2s;" onmouseover="this.style.color='#fff';this.style.borderColor='var(--surface-border)'" onmouseout="this.style.color='var(--text-tertiary)';this.style.borderColor='var(--surface-border)'" onclick="window.location.reload()">CANCEL</button>
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 16px; margin-bottom: 24px;">
           <h2 id="loadingHeadline" style="font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em;">Initializing engine</h2>
           <span id="loadingPercent" style="font-family: var(--font-mono); font-size: 2.5rem; color: ${color}; font-weight: 800; letter-spacing: -0.05em;">0%</span>
