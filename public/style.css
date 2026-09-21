@@ -53,59 +53,8 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.app-nav { animation: floatUpFade 0.8s var(--ease-float) forwards; }
 .omnibox-container { opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.1s forwards; }
 #homepage-defaults { opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.2s forwards; }
-
-/* ==========================================================================
-   NAVIGATION
-   ========================================================================== */
-.app-nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 64px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  position: relative; 
-  z-index: 100;
-}
-
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #fff;
-  text-decoration: none;
-  transition: opacity 0.3s var(--ease-float);
-}
-
-.nav-brand:hover { opacity: 0.7; }
-
-.nav-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  background: var(--surface-subtle);
-  padding: 6px 12px;
-  border-radius: 9999px;
-  border: 1px solid var(--surface-border);
-}
-
-.nav-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--brand-emerald);
-}
 
 /* ==========================================================================
    OMNIBOX & SEARCH
@@ -401,7 +350,7 @@ body {
 /* Enterprise Print CSS */
 @media print {
   body, html, .card { background: #fff !important; color: #000 !important; border-color: #ccc !important; }
-  .app-nav, .omnibox-container, .action-grid { display: none !important; }
+  .omnibox-container, .action-grid, #nav-dock { display: none !important; }
 }
 
 /* ==========================================================================

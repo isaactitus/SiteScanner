@@ -37,6 +37,10 @@ window.initNavDock = function() {
   dock.id = 'nav-dock';
   dock.setAttribute('aria-label', 'Main navigation dock');
   dock.innerHTML = `
+    <div id="dock-auth-slot" class="dock-item" data-tip="Account" aria-label="Account" style="overflow:hidden;">
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="dock-sep"></div>
     <a href="/"          class="dock-item ${activeClass('home')}"      data-tip="Home"           aria-label="Home">${icons.home}</a>
     <a href="/dashboard.html" class="dock-item ${activeClass('dashboard')}" data-tip="Command Center" aria-label="Command Center">${icons.dashboard}</a>
     <div class="dock-sep"></div>
@@ -48,6 +52,9 @@ window.initNavDock = function() {
     <button class="dock-item" id="dock-about"    data-tip="About"    aria-label="About">${icons.about}</button>
   `;
   document.body.appendChild(dock);
+
+  // Wire auth slot — updateNavAuthUI will populate it after auth resolves
+  updateDockAuth();
 
   // ── Modal helper ──────────────────────────────────────────
   function openDockModal(html) {
@@ -134,47 +141,69 @@ window.loadRecentFeed = async function() {
 
 async function checkAuthSession() { try { const data = await (await fetch("/api/auth/me")).json(); currentUser = data.user; updateNavAuthUI(); } catch { currentUser = null; updateNavAuthUI(); } }
 
-function updateNavAuthUI() {
-  const container = document.getElementById("authNavContainer");
-  if (!container) return;
+function updateDockAuth() {
+  const slot = document.getElementById('dock-auth-slot');
+  if (!slot) return;
+
   if (currentUser) {
-    const isPro = currentUser.is_pro; const badge = isPro ? "PRO" : "FREE"; const badgeColor = isPro ? "var(--brand-emerald)" : "var(--brand-purple)";
-    container.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 8px; cursor: pointer; transition: all 0.3s var(--ease-float);" id="userProfileBtn" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
-        <img src="${currentUser.avatar_url || 'https://via.placeholder.com/32'}" alt="Avatar" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--surface-border);" />
-        <span style="font-size: 0.85rem; color: #fff; font-weight: 600;">${currentUser.name ? currentUser.name.split(' ')[0] : 'User'}</span>
-        <span style="font-size: 0.65rem; padding: 2px 8px; border-radius: 9999px; background: var(--surface-subtle); color: ${badgeColor}; border: 1px solid var(--surface-border); font-family: var(--font-mono); font-weight: 700;">${badge}</span>
-      </div>
-      <div id="userDropdown" style="display: none; position: absolute; right: 0; top: 48px; background: var(--surface); border: 1px solid var(--surface-border); border-radius: var(--radius-md); padding: 12px; z-index: 10000; box-shadow: var(--shadow-float); min-width: 220px; animation: floatUpFade 0.3s var(--ease-float);">
-        <div style="font-size: 0.75rem; color: var(--text-tertiary); margin-bottom: 12px; word-break: break-all; font-family: var(--font-mono); padding: 0 8px;">${currentUser.email}</div>
-        <a href="/dashboard.html" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 8px; padding: 8px 12px; background: var(--surface-subtle); border-radius: var(--radius-sm); text-align: center; border: 1px solid var(--surface-border); transition: all 0.2s;" onmouseover="this.style.background='var(--surface-border)'" onmouseout="this.style.background='var(--surface-subtle)'">Command Center</a>
-        <a href="/history" style="display: block; font-size: 0.85rem; color: #fff; text-decoration: none; margin-bottom: 12px; padding: 8px 12px; background: transparent; border-radius: var(--radius-sm); text-align: center; border: 1px solid transparent; transition: all 0.2s;" onmouseover="this.style.background='var(--surface-subtle)'" onmouseout="this.style.background='transparent'">Audit History</a>
-        <hr style="border: none; border-top: 1px solid var(--surface-border); margin-bottom: 8px;" />
-        <button id="logoutBtn" style="background: transparent; border: none; color: var(--brand-rose); font-size: 0.85rem; font-weight: 600; cursor: pointer; padding: 8px 12px; width: 100%; text-align: left; border-radius: var(--radius-sm); transition: background 0.2s;" onmouseover="this.style.background='rgba(251,113,133,0.1)'" onmouseout="this.style.background='transparent'">Sign Out</button>
-      </div>`;
-      
-    document.getElementById("userProfileBtn").onclick = (e) => { 
-      e.stopPropagation(); 
-      const dd = document.getElementById("userDropdown"); 
-      dd.style.display = dd.style.display === "none" ? "block" : "none"; 
-    };
-    
-    document.getElementById("userDropdown").onclick = (e) => { e.stopPropagation(); };
-    
-    if (!window.navListenerAttached) {
-      document.addEventListener("click", () => { 
-        const dd = document.getElementById("userDropdown"); 
-        if (dd) dd.style.display = "none"; 
-      });
-      window.navListenerAttached = true;
+    const isPro = currentUser.is_pro;
+    const badgeColor = isPro ? 'var(--brand-emerald)' : 'var(--brand-purple)';
+    const avatarSrc = currentUser.avatar_url || '';
+
+    // Show avatar image or fallback initials
+    if (avatarSrc) {
+      slot.innerHTML = `<img src="${avatarSrc}" alt="Avatar" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:2px solid ${badgeColor};display:block;" />`;
+    } else {
+      const initial = (currentUser.name || 'U')[0].toUpperCase();
+      slot.innerHTML = `<span style="width:30px;height:30px;border-radius:50%;background:var(--surface-subtle);border:2px solid ${badgeColor};display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:#fff;">${initial}</span>`;
     }
-    
-    document.getElementById("logoutBtn").onclick = async () => { await fetch("/api/auth/logout", { method: "POST" }); currentUser = null; location.reload(); };
+    slot.style.background = `rgba(${isPro ? '52,211,153' : '129,140,248'},0.1)`;
+    slot.setAttribute('data-tip', currentUser.name ? currentUser.name.split(' ')[0] : 'Account');
+
+    slot.onclick = (e) => {
+      e.stopPropagation();
+      // Reuse the dock settings modal
+      const existingBackdrop = document.getElementById('dock-modal-backdrop');
+      if (existingBackdrop) { existingBackdrop.remove(); return; }
+      const backdrop = document.createElement('div');
+      backdrop.className = 'dock-modal-backdrop';
+      backdrop.id = 'dock-modal-backdrop';
+      backdrop.innerHTML = `
+        <div class="dock-modal">
+          <button class="dock-modal-close" aria-label="Close">✕</button>
+          <span class="dock-modal-label">[ ACCOUNT ]</span>
+          <h3>${currentUser.name || 'User'}</h3>
+          <div class="dock-modal-row"><span class="dock-modal-key">Email</span><span class="dock-modal-val" style="font-size:0.78rem">${currentUser.email || '—'}</span></div>
+          <div class="dock-modal-row"><span class="dock-modal-key">Plan</span><span class="dock-modal-val" style="color:${badgeColor}">${isPro ? 'PRO' : 'FREE'}</span></div>
+          <div style="margin-top:28px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+            <a href="/dashboard.html" style="font-size:0.82rem;font-weight:600;color:var(--brand-cyan);text-decoration:none;font-family:var(--font-mono);">Command Center →</a>
+            <button id="dockLogoutBtn" style="background:transparent;border:none;color:var(--brand-rose);font-family:var(--font-mono);font-size:0.82rem;font-weight:600;cursor:pointer;padding:0;">Sign Out</button>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+      backdrop.querySelector('.dock-modal-close').onclick = () => backdrop.remove();
+      backdrop.addEventListener('click', ev => { if (ev.target === backdrop) backdrop.remove(); });
+      document.getElementById('dockLogoutBtn').onclick = async () => {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        currentUser = null;
+        location.reload();
+      };
+    };
   } else {
-    container.innerHTML = `<button id="navSignInBtn" class="cta-button" style="padding: 8px 24px; font-size: 0.85rem;" type="button">Sign In</button>`;
-    document.getElementById("navSignInBtn").onclick = showSignInModal;
+    // Not signed in — ghost user icon, click to sign in
+    slot.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+    slot.style.background = '';
+    slot.setAttribute('data-tip', 'Sign In');
+    slot.onclick = () => showSignInModal();
   }
 }
+
+function updateNavAuthUI() {
+  // Legacy: kept for any legacy callers (e.g. after payment success).
+  // Now delegates entirely to the dock slot.
+  updateDockAuth();
+}
+
 
 function showSignInModal() {
   if (document.getElementById("authModal")) document.getElementById("authModal").remove();
