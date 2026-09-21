@@ -62,6 +62,8 @@
       if (window.authReady) await window.authReady;
       if (!currentUser) return window.location.href = "/";
 
+      window.initNavDock();
+
       try {
         const res = await fetch("/api/user-history");
         const scans = await res.json();

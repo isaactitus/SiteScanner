@@ -2,6 +2,126 @@
 let currentUser = null;
 const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.googleusercontent.com";
 
+/* ============================================================
+   VERTICAL NAV DOCK
+   ============================================================ */
+window.initNavDock = function() {
+  if (document.getElementById('nav-dock')) return; // Guard: only once
+
+  const path = window.location.pathname;
+
+  // Determine active item by pathname
+  const isHome      = path === '/' || path === '/index.html';
+  const isDashboard = path.startsWith('/dashboard');
+  const isHistory   = path.startsWith('/history');
+
+  function activeClass(key) {
+    if (key === 'home' && isHome)           return 'dock-active-home';
+    if (key === 'dashboard' && isDashboard) return 'dock-active';
+    if (key === 'history' && isHistory)     return 'dock-active';
+    return '';
+  }
+
+  // SVG icon strings (Lucide-style, inline)
+  const icons = {
+    home: `<svg viewBox="0 0 24 24"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>`,
+    dashboard: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
+    alerts: `<svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+    usage: `<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    history: `<svg viewBox="0 0 24 24"><polyline points="12 8 12 12 14 14"/><path d="M3.05 11a9 9 0 1 1 .5 4M3 3v5h5"/></svg>`,
+    settings: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+    about: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+  };
+
+  const dock = document.createElement('nav');
+  dock.id = 'nav-dock';
+  dock.setAttribute('aria-label', 'Main navigation dock');
+  dock.innerHTML = `
+    <a href="/"          class="dock-item ${activeClass('home')}"      data-tip="Home"           aria-label="Home">${icons.home}</a>
+    <a href="/dashboard.html" class="dock-item ${activeClass('dashboard')}" data-tip="Command Center" aria-label="Command Center">${icons.dashboard}</a>
+    <div class="dock-sep"></div>
+    <button class="dock-item" id="dock-alerts"   data-tip="Alerts"   aria-label="Alerts">${icons.alerts}</button>
+    <button class="dock-item" id="dock-usage"    data-tip="Usage"    aria-label="Usage">${icons.usage}</button>
+    <div class="dock-sep"></div>
+    <a href="/history"   class="dock-item ${activeClass('history')}"   data-tip="History"        aria-label="History">${icons.history}</a>
+    <button class="dock-item" id="dock-settings" data-tip="Settings" aria-label="Settings">${icons.settings}</button>
+    <button class="dock-item" id="dock-about"    data-tip="About"    aria-label="About">${icons.about}</button>
+  `;
+  document.body.appendChild(dock);
+
+  // ── Modal helper ──────────────────────────────────────────
+  function openDockModal(html) {
+    closeDockModal();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dock-modal-backdrop';
+    backdrop.id = 'dock-modal-backdrop';
+    backdrop.innerHTML = `<div class="dock-modal">${html}<button class="dock-modal-close" aria-label="Close">✕</button></div>`;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('.dock-modal-close').onclick = closeDockModal;
+    backdrop.addEventListener('click', e => { if (e.target === backdrop) closeDockModal(); });
+  }
+  function closeDockModal() {
+    document.getElementById('dock-modal-backdrop')?.remove();
+  }
+
+  // ── Alerts modal ─────────────────────────────────────────
+  document.getElementById('dock-alerts').onclick = () => openDockModal(`
+    <span class="dock-modal-label">[ ALERT CONFIG ]</span>
+    <h3>Monitor Alerts</h3>
+    <p>Automated infrastructure alerts trigger when a monitored domain's security score drops below a configured threshold or a critical check fails.</p>
+    <div class="dock-modal-row"><span class="dock-modal-key">Threshold</span><span class="dock-modal-val">Score &lt; 50</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Delivery</span><span class="dock-modal-val">Email on change</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Status</span><span class="dock-modal-val" style="color:var(--brand-emerald)">Active</span></div>
+    <div style="margin-top:24px;">
+      <a href="/dashboard.html" style="display:inline-block; font-size:0.85rem; font-weight:600; color:var(--brand-cyan); text-decoration:none; font-family:var(--font-mono);">Manage in Command Center →</a>
+    </div>
+  `);
+
+  // ── Usage modal ──────────────────────────────────────────
+  document.getElementById('dock-usage').onclick = async () => {
+    const user = currentUser;
+    const tier  = user?.is_pro ? 'PRO' : 'FREE';
+    const limit = user?.is_pro ? 'Unlimited' : '5 / day';
+    openDockModal(`
+      <span class="dock-modal-label">[ PLAN USAGE ]</span>
+      <h3>Scan Allocation</h3>
+      <p>Current usage metrics for your account tier. Upgrade to Pro for unlimited daily scans and advanced DAST.</p>
+      <div class="dock-modal-row"><span class="dock-modal-key">Tier</span><span class="dock-modal-val" style="color:${user?.is_pro ? 'var(--brand-emerald)' : 'var(--brand-purple)'}">${tier}</span></div>
+      <div class="dock-modal-row"><span class="dock-modal-key">Daily Scans</span><span class="dock-modal-val">${limit}</span></div>
+      <div class="dock-modal-row"><span class="dock-modal-key">Active DAST</span><span class="dock-modal-val">${user?.is_pro ? 'Enabled' : 'Pro Only'}</span></div>
+      ${!user?.is_pro ? `<div style="margin-top:24px;"><button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:transparent;border:1px solid var(--brand-emerald);color:var(--brand-emerald);font-family:var(--font-mono);font-size:0.8rem;padding:8px 20px;border-radius:9999px;cursor:pointer;letter-spacing:0.05em;">UPGRADE TO PRO →</button></div>` : ''}
+    `);
+  };
+
+  // ── Settings modal ───────────────────────────────────────
+  document.getElementById('dock-settings').onclick = () => {
+    const user = currentUser;
+    if (!user) return showSignInModal();
+    openDockModal(`
+      <span class="dock-modal-label">[ ACCOUNT ]</span>
+      <h3>Settings</h3>
+      <div class="dock-modal-row"><span class="dock-modal-key">Name</span><span class="dock-modal-val">${user.name || '—'}</span></div>
+      <div class="dock-modal-row"><span class="dock-modal-key">Email</span><span class="dock-modal-val" style="font-size:0.8rem">${user.email || '—'}</span></div>
+      <div class="dock-modal-row"><span class="dock-modal-key">Plan</span><span class="dock-modal-val" style="color:${user.is_pro ? 'var(--brand-emerald)' : 'var(--brand-purple)'}">${user.is_pro ? 'PRO' : 'FREE'}</span></div>
+      <div style="margin-top:28px; display:flex; gap:12px; flex-wrap:wrap;">
+        <a href="/dashboard.html" style="font-size:0.82rem;font-weight:600;color:var(--brand-cyan);text-decoration:none;font-family:var(--font-mono);">Command Center →</a>
+        <button onclick="fetch('/api/auth/logout',{method:'POST'}).then(()=>location.reload())" style="background:transparent;border:none;color:var(--brand-rose);font-family:var(--font-mono);font-size:0.82rem;font-weight:600;cursor:pointer;padding:0;">Sign Out</button>
+      </div>
+    `);
+  };
+
+  // ── About modal ──────────────────────────────────────────
+  document.getElementById('dock-about').onclick = () => openDockModal(`
+    <span class="dock-modal-label">[ SYSTEM INFO ]</span>
+    <h3>SiteScanner</h3>
+    <p>Passive and active security auditing for web infrastructure. Evaluates HTTP posture, TLS configuration, email authentication, exposed files, and security policy compliance.</p>
+    <div class="dock-modal-row"><span class="dock-modal-key">Engine</span><span class="dock-modal-val">v2.4.1</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Runtime</span><span class="dock-modal-val">Node.js · Edge</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Checks</span><span class="dock-modal-val">12 passive · 6 active</span></div>
+    <div class="dock-modal-row"><span class="dock-modal-key">Data retention</span><span class="dock-modal-val">90 days</span></div>
+  `);
+};
+
 window.loadRecentFeed = async function() {
   const recentListEl = document.getElementById('recentList');
   if (!recentListEl) return;
