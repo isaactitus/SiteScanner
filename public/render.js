@@ -8,17 +8,6 @@ const GOOGLE_CLIENT_ID = "850082538445-h6ehbqqta1ebegfrdretko5plf5eaqme.apps.goo
 window.initSiteHeader = function() {
   if (document.getElementById('site-header')) return; // guard
 
-  const path = window.location.pathname;
-
-  // Derive page context label
-  let contextLabel = 'AUDIT_ENGINE';
-  if (path.startsWith('/dashboard')) contextLabel = 'COMMAND_CENTER';
-  else if (path.startsWith('/history')) contextLabel = 'SCAN_HISTORY';
-  else if (path.startsWith('/report')) {
-    const domain = decodeURIComponent(path.split('/report/')[1] || '');
-    contextLabel = domain ? `REPORT · ${domain.toUpperCase()}` : 'REPORT';
-  }
-
   const header = document.createElement('header');
   header.id = 'site-header';
   header.setAttribute('aria-label', 'Site header');
@@ -36,54 +25,89 @@ window.initSiteHeader = function() {
       <span class="site-header-brand-name"><span>Site</span>Scanner</span>
     </a>
 
-    <!-- Page context (centre) -->
-    <div class="site-header-context" aria-hidden="true">
-      <span>[ ${contextLabel} ]</span>
-    </div>
-
-    <!-- Live stats (right) -->
-    <div class="site-header-stats">
-      <div class="site-header-stat">
-        <div class="header-live-dot"></div>
-        <span>Systems Nominal</span>
+    <!-- Live stats & Controls (right) -->
+    <div style="display:flex; align-items:center;">
+      <div class="site-header-stats" id="header-auth-stats">
+        <!-- Populated by updateHeaderAuthUI -->
       </div>
-      <div class="site-header-divider"></div>
-      <div class="site-header-stat">
-        <span>Scans Today</span>
-        <strong id="header-scan-count" class="header-scan-count">—</strong>
-      </div>
-      <div class="site-header-divider"></div>
-      <div class="site-header-stat">
-        <span>Engine</span>
-        <strong>v2.4.1</strong>
-      </div>
+      
+      <!-- Theme Toggle -->
+      <button id="theme-toggle-btn" aria-label="Toggle theme" style="background:transparent; border:none; color:var(--text-tertiary); cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; border-radius:50%; margin-left:16px; transition:color 0.2s, background 0.2s;">
+      </button>
     </div>
   `;
 
   document.body.prepend(header);
 
-  // Fetch live scan count from /api/recent (count unique today's entries)
-  // Fall back to a simulated number if API isn't available
-  (async () => {
-    const countEl = document.getElementById('header-scan-count');
-    if (!countEl) return;
-    try {
-      const res = await fetch('/api/recent');
-      if (!res.ok) throw new Error('no data');
+  // Set up theme toggle
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  const updateThemeIcon = () => {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    themeBtn.innerHTML = isLight 
+      ? '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>'
+      : '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
+  };
+  updateThemeIcon();
+  
+  themeBtn.addEventListener('click', () => {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    if (newTheme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('theme', 'light');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('theme', 'dark');
+    }
+    updateThemeIcon();
+  });
+
+  if (window.updateHeaderAuthUI) window.updateHeaderAuthUI();
+};
+
+window.updateHeaderAuthUI = async function() {
+  const statsContainer = document.getElementById('header-auth-stats');
+  if (!statsContainer) return;
+
+  let todayCount = 0;
+  try {
+    const res = await fetch('/api/recent');
+    if (res.ok) {
       const items = await res.json();
-      // Count items scanned today
       const todayStr = new Date().toISOString().slice(0, 10);
-      const todayCount = Array.isArray(items)
+      todayCount = Array.isArray(items)
         ? items.filter(i => i.scanned_at && i.scanned_at.slice(0, 10) === todayStr).length
         : items.length || 0;
-      countEl.textContent = todayCount > 0 ? todayCount : items.length || 0;
-    } catch {
-      // Show a plausible simulated number so the header never looks empty
-      const seed = Math.floor(Date.now() / 86400000); // changes daily
-      const simulated = ((seed * 7 + 43) % 80) + 12; // 12-91 range
-      countEl.textContent = simulated;
     }
-  })();
+  } catch (e) {}
+
+  const isPro = currentUser && currentUser.is_pro;
+  
+  if (isPro) {
+    statsContainer.innerHTML = `
+      <div class="site-header-stat">
+        <div class="header-live-dot"></div>
+        <span style="color:var(--brand-emerald); font-weight:bold;">PRO TIER</span>
+      </div>
+      <div class="site-header-divider"></div>
+      <div class="site-header-stat">
+        <span>Scans Today</span>
+        <strong style="color:var(--text-primary);">${todayCount}</strong>
+      </div>
+    `;
+  } else {
+    const scansLeft = Math.max(0, 5 - todayCount);
+    statsContainer.innerHTML = `
+      <div class="site-header-stat" style="color:var(--brand-amber);">
+        <span>Scans Left</span>
+        <strong style="color:var(--text-primary);">${scansLeft} / 5</strong>
+      </div>
+      <div class="site-header-divider"></div>
+      <button onclick="window.launchRazorpayCheckout('Pro Plan')" style="background:var(--brand-emerald); color:#000; border:none; padding:4px 12px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem; font-weight:bold; cursor:pointer; text-transform:uppercase; transition:opacity 0.2s;">
+        Upgrade to Pro
+      </button>
+    `;
+  }
 };
 
 /* ============================================================
@@ -286,6 +310,7 @@ function updateNavAuthUI() {
   // Legacy: kept for any legacy callers (e.g. after payment success).
   // Now delegates entirely to the dock slot.
   updateDockAuth();
+  if (window.updateHeaderAuthUI) window.updateHeaderAuthUI();
 }
 
 

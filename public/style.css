@@ -30,6 +30,25 @@
   --ease-float: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+:root[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --surface-border: #e2e8f0;
+  --surface-border-hover: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --shadow-float: 0 20px 40px -10px rgba(0, 0, 0, 0.15);
+  
+  /* Brand colors may stay the same, but let's tweak if needed. They are mostly fine on light backgrounds. */
+  --brand-cyan: #0284c7;
+  --brand-purple: #6366f1;
+  --brand-emerald: #10b981;
+  --brand-rose: #f43f5e;
+  --brand-amber: #f59e0b;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -39,6 +58,7 @@ body {
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   line-height: 1.6;
+  transition: background-color 0.3s var(--ease-float), color 0.3s var(--ease-float);
 }
 
 .app-container {
