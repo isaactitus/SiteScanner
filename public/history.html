@@ -55,6 +55,7 @@
       if (window.authReady) await window.authReady;
       if (!currentUser) return window.location.href = "/";
 
+      window.initSiteHeader();
       window.initNavDock();
 
       try {
