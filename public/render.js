@@ -545,15 +545,10 @@ function renderResults(data, targetId = "results") {
   if (isGuest) mainHtml += `<div class="card" style="text-align: center; border: 1px solid var(--surface-border); background: var(--surface-subtle); padding: 48px 32px; margin-top: 32px;"><h3 style="color: #fff; margin-bottom: 12px; font-weight: 700;">Infrastructure Management</h3><p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">Authenticate to export reports and establish automated telemetry.</p><button onclick="showSignInModal()" class="cta-button" style="background: #fff; color: #000; border: none; max-width: 250px; margin: 0 auto;">Sign In</button></div>`;
   else mainHtml += `<div class="action-grid" style="grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 32px;"><button id="exportPdfBtn" class="cta-button" type="button" style="background: transparent;">Export PDF Report</button><button id="explainBtn" class="cta-button" type="button" style="background: #fff; color: #000; border: none;">Generate Action Plan</button><button id="monitorBtn" class="cta-button" type="button" style="background: transparent;">Configure Alerts</button></div><div id="monitorFeedback" style="display:none; margin-top: 12px;"></div><div id="reportContainer" style="margin-top: 24px;"></div>`;
   
-  // Assemble final flex layout
+  // Assemble final layout — single column, sidebar cards live on homepage only
   resultsEl.innerHTML = `
-    <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;">
-      <div style="flex: 1 1 60%; min-width: 300px; display: flex; flex-direction: column; gap: 16px;">
-        ${mainHtml}
-      </div>
-      <div style="flex: 1 1 300px; max-width: 380px; display: flex; flex-direction: column; gap: 24px;">
-        ${sidebarHtml}
-      </div>
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      ${mainHtml}
     </div>
   `;
 
