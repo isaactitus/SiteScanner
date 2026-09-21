@@ -31,7 +31,7 @@
     #intel-panel {
       display: none;
       flex-direction: column;
-      gap: 20px;
+      gap: 28px;
       animation: floatUpFade 0.6s var(--ease-float) forwards;
       opacity: 0;
     }
@@ -172,6 +172,20 @@
 
       // Restore on page load
       window._refreshIntelPanel();
+
+      // Show/hide [ CLEAR ] based on whether results section has content
+      const resultsEl = document.getElementById('results');
+      const clearBtn  = document.getElementById('intel-clear-btn');
+
+      function syncClearBtn() {
+        // Hide clear button whenever a scan is running or results are displayed
+        clearBtn.style.display = resultsEl && resultsEl.children.length > 0 ? 'none' : 'block';
+      }
+
+      // Watch results section for DOM mutations
+      const resultObserver = new MutationObserver(syncClearBtn);
+      if (resultsEl) resultObserver.observe(resultsEl, { childList: true, subtree: false });
+      syncClearBtn(); // run once on load
 
       // Clear button
       document.getElementById('intel-clear-btn').onclick = () => {
