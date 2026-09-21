@@ -274,10 +274,94 @@ window.showDnsVerificationModal = async function(hostname, onSuccess) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED INTEL SIDEBAR RENDERER
+// Returns the HTML string for Site Profile + Detected Stack cards.
+// Also callable standalone from index.html to show cached scan data.
+// ─────────────────────────────────────────────────────────────────────────────
+window.renderIntelCards = function(data) {
+  const { raw, hostname, score, grade, previousScan } = data;
+
+  const issuer   = raw.tls?.issuer || 'Unknown';
+  const expiry   = raw.tls?.daysUntilExpiry ? `${raw.tls.daysUntilExpiry} days` : 'Invalid';
+  const serverHeader = raw.headers?.server || 'Hidden';
+
+  const stack = [];
+  const srvLower  = serverHeader.toLowerCase();
+  const poweredBy = (raw.headers?.['x-powered-by'] || '').toLowerCase();
+  if (srvLower.includes('cloudflare'))  stack.push('Cloudflare');
+  if (srvLower.includes('nginx'))       stack.push('Nginx');
+  if (srvLower.includes('apache'))      stack.push('Apache');
+  if (raw.headers?.['x-vercel-id'])     stack.push('Vercel Edge');
+  if (poweredBy.includes('next'))       stack.push('Next.js');
+  if (poweredBy.includes('php'))        stack.push('PHP');
+  if (poweredBy.includes('express'))    stack.push('Express');
+  if (raw.headers?.['via']?.toLowerCase().includes('aws')) stack.push('AWS CloudFront');
+  if (stack.length === 0) stack.push('Standard HTTP');
+
+  const stackHtml = stack.map(tech =>
+    `<span style="font-family:var(--font-sans);font-size:0.85rem;color:var(--text-primary);background:var(--bg);border:1px solid var(--surface-border);padding:6px 12px;border-radius:8px;font-weight:500;">${tech}</span>`
+  ).join('');
+
+  const gradeColor = score >= 75 ? 'var(--brand-emerald)' : score >= 40 ? 'var(--brand-amber)' : 'var(--brand-rose)';
+  const prevScoreHtml = previousScan
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><div style="font-weight:700;font-size:1.25rem;color:#fff;"><span style="color:${previousScan.score>=75?'var(--brand-emerald)':previousScan.score>=40?'var(--brand-amber)':'var(--brand-rose)'};margin-right:8px;font-size:1.6rem;">${previousScan.grade}</span>${previousScan.score}<span style="font-size:0.9rem;color:var(--text-tertiary);">/100</span></div></div>`
+    : `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:32px;padding-top:24px;border-top:1px dashed var(--surface-border);"><span style="color:var(--text-tertiary);font-size:0.9rem;">Last audit</span><span style="font-family:var(--font-mono);font-size:0.85rem;color:var(--text-secondary);">No prior data</span></div>`;
+
+  return `
+    <!-- Site Profile -->
+    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;">SITE PROFILE</span>
+        <div style="display:flex;align-items:center;gap:6px;color:var(--brand-emerald);font-weight:700;font-size:0.75rem;font-family:var(--font-mono);">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--brand-emerald);box-shadow:0 0 8px var(--brand-emerald);"></span> LIVE
+        </div>
+      </div>
+      <a href="/report/${encodeURIComponent(hostname)}" style="text-decoration:none;">
+        <h3 style="font-size:1.8rem;color:#fff;margin-bottom:8px;word-break:break-all;transition:color 0.2s;" onmouseover="this.style.color='var(--brand-cyan)'" onmouseout="this.style.color='#fff'">${hostname}</h3>
+      </a>
+      <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-tertiary);letter-spacing:0.05em;margin-bottom:28px;">
+        <a href="/report/${encodeURIComponent(hostname)}" style="color:var(--brand-cyan);text-decoration:none;">View full report →</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px;font-size:0.95rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">Hosting</span>
+          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${raw.emailAuth?.isSharedHost ? 'PaaS / Edge' : 'Dedicated'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">TLS issuer</span>
+          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${issuer.length > 15 ? issuer.substring(0,14)+'...' : issuer}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);padding-bottom:12px;">
+          <span style="color:var(--text-tertiary);">Expires in</span>
+          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${expiry}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:var(--text-tertiary);">Server</span>
+          <span style="color:#fff;font-family:var(--font-mono);font-size:0.9rem;">${serverHeader.length > 15 ? serverHeader.substring(0,14)+'...' : serverHeader}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detected Stack -->
+    <div class="card" style="padding:32px 24px;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+      <span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-tertiary);letter-spacing:0.08em;display:block;margin-bottom:24px;">DETECTED STACK</span>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">${stackHtml}</div>
+      ${prevScoreHtml}
+    </div>
+  `;
+};
+
 function renderResults(data, targetId = "results") {
   const resultsEl = document.getElementById(targetId); if (!resultsEl) return;
-  const { raw, hostname, score, grade, previousScan } = data; 
-  const isGuest = !currentUser; 
+  const { raw, hostname, score, grade, previousScan } = data;
+
+  // ── Persist to localStorage so homepage can display intel cards ──
+  try {
+    localStorage.setItem('lastScannedData', JSON.stringify({ raw, hostname, score, grade, previousScan }));
+  } catch(e) { /* storage quota or private mode — silently skip */ }
+
+  const isGuest = !currentUser;
   const isPro = currentUser && currentUser.is_pro;
   
   const gradeHex = score >= 75 ? "var(--brand-emerald)" : score >= 40 ? "var(--brand-amber)" : "var(--brand-rose)";

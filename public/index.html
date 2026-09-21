@@ -4,86 +4,184 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SiteScanner — Enterprise Security Auditing</title>
+  <meta name="description" content="Passive and active security auditing for web infrastructure. Evaluate HTTP headers, TLS, CORS, and exposed files in seconds." />
   <link rel="stylesheet" href="/style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    /* Two-column homepage layout */
+    #homepage-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 40px;
+      align-items: start;
+      transition: grid-template-columns 0.4s var(--ease-float);
+    }
+
+    #homepage-layout.has-intel {
+      grid-template-columns: 1fr 320px;
+    }
+
+    @media (max-width: 900px) {
+      #homepage-layout.has-intel {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    #intel-panel {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+      animation: floatUpFade 0.6s var(--ease-float) forwards;
+      opacity: 0;
+    }
+
+    #homepage-layout.has-intel #intel-panel {
+      display: flex;
+    }
+
+    /* When intel is showing, un-centre the left column */
+    #homepage-layout.has-intel #left-col .omnibox-container {
+      max-width: 100%;
+      margin-left: 0;
+      margin-right: 0;
+    }
+
+    /* Clear button on intel panel */
+    #intel-clear-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-tertiary);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      text-align: right;
+      display: block;
+      margin-bottom: 4px;
+      transition: color 0.2s;
+    }
+    #intel-clear-btn:hover { color: var(--brand-rose); }
+  </style>
 </head>
 <body>
   <div class="app-container">
-
-    <!-- Results Area -->
     <main style="margin-top: 14vh;">
-      <section class="omnibox-container">
-        
-        <!-- Premium Anchor Text -->
-        <h2 style="text-align: center; font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; margin-bottom: 32px; opacity: 0; animation: floatUpFade 0.8s var(--ease-float) forwards;">
-          What are we scanning today?
-        </h2>
+      <div id="homepage-layout">
 
-        <form id="scanForm" class="omnibox-form" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.1s forwards;">
-          <div class="omnibox-wrapper">
-            <span class="omnibox-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            </span>
-            <input 
-              id="targetUrl" 
-              type="text" 
-              class="omnibox-input" 
-              placeholder="Enter target domain (e.g., example.com)" 
-              spellcheck="false" 
-              autocomplete="off" 
-              required 
-            />
-            <button id="submitScanBtn" type="submit" class="omnibox-btn" style="background: #fff; color: #000;">Run Standard Audit</button>
-          </div>
+        <!-- LEFT: Search + Audit type cards -->
+        <div id="left-col">
+          <section class="omnibox-container">
+            <h2 id="homepage-heading" style="text-align: center; font-size: 2.2rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; margin-bottom: 32px; opacity: 0; animation: floatUpFade 0.8s var(--ease-float) forwards;">
+              What are we scanning today?
+            </h2>
 
-          <div class="omnibox-options">
-            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="ownershipConfirmed" checked required style="accent-color: var(--brand-cyan);" />
-              <span>I confirm authorization to scan this domain</span>
-            </label>
-            <label class="checkbox-label" id="publicFeedOption" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" id="listPublicly" checked style="accent-color: var(--brand-cyan);">
-              <span>List result in public recent scans</span>
-            </label>
-          </div>
-        </form>
-
-        <!-- New Audit Selection Cards -->
-        <div id="homepage-defaults" class="audit-type-grid" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.2s forwards;">
-          
-          <div class="audit-card active" id="cardStandard">
-            <div class="audit-card-header">
-              <h3>Standard Audit</h3>
-              <div class="radio-indicator"></div>
-            </div>
-            <p>Passive reconnaissance. Evaluates HTTP headers, SSL/TLS configurations, CORS policies, and exposed source files without touching the server runtime.</p>
-            <span class="audit-tag">[ EST. 40 SECONDS ]</span>
-          </div>
-
-          <div class="audit-card" id="cardActive">
-            <div class="audit-card-header">
-              <div style="display:flex; align-items:center; gap:12px;">
-                <h3>Active DAST</h3>
-                <span class="pro-badge">PRO</span>
+            <form id="scanForm" class="omnibox-form" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.1s forwards;">
+              <div class="omnibox-wrapper">
+                <span class="omnibox-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </span>
+                <input
+                  id="targetUrl"
+                  type="text"
+                  class="omnibox-input"
+                  placeholder="Enter target domain (e.g., example.com)"
+                  spellcheck="false"
+                  autocomplete="off"
+                  required
+                />
+                <button id="submitScanBtn" type="submit" class="omnibox-btn" style="background: #fff; color: #000;">Run Standard Audit</button>
               </div>
-              <div class="radio-indicator"></div>
+
+              <div class="omnibox-options">
+                <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="ownershipConfirmed" checked required style="accent-color: var(--brand-cyan);" />
+                  <span>I confirm authorization to scan this domain</span>
+                </label>
+                <label class="checkbox-label" id="publicFeedOption" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="listPublicly" checked style="accent-color: var(--brand-cyan);">
+                  <span>List result in public recent scans</span>
+                </label>
+              </div>
+            </form>
+
+            <!-- Audit Selection Cards -->
+            <div id="homepage-defaults" class="audit-type-grid" style="opacity: 0; animation: floatUpFade 0.8s var(--ease-float) 0.2s forwards;">
+              <div class="audit-card active" id="cardStandard">
+                <div class="audit-card-header">
+                  <h3>Standard Audit</h3>
+                  <div class="radio-indicator"></div>
+                </div>
+                <p>Passive reconnaissance. Evaluates HTTP headers, SSL/TLS configurations, CORS policies, and exposed source files without touching the server runtime.</p>
+                <span class="audit-tag">[ EST. 40 SECONDS ]</span>
+              </div>
+
+              <div class="audit-card" id="cardActive">
+                <div class="audit-card-header">
+                  <div style="display:flex; align-items:center; gap:12px;">
+                    <h3>Active DAST</h3>
+                    <span class="pro-badge">PRO</span>
+                  </div>
+                  <div class="radio-indicator"></div>
+                </div>
+                <p>Containerized payload execution. Deploys authorized background workers to uncover deep runtime vulnerabilities, SQLi, and XSS flaws.</p>
+                <span class="audit-tag" style="color: var(--brand-amber);">[ REQUIRES VERIFICATION ]</span>
+              </div>
             </div>
-            <p>Containerized payload execution. Deploys authorized background workers to uncover deep runtime vulnerabilities, SQLi, and XSS flaws.</p>
-            <span class="audit-tag" style="color: var(--brand-amber);">[ REQUIRES VERIFICATION ]</span>
-          </div>
+          </section>
 
+          <!-- Live scan results go here -->
+          <section id="results" class="results-area"></section>
         </div>
-      </section>
 
-      <!-- Results Area -->
-      <section id="results" class="results-area"></section>
+        <!-- RIGHT: Persistent intel cards (hidden when no cached data) -->
+        <aside id="intel-panel">
+          <button id="intel-clear-btn" title="Clear cached scan">[ CLEAR ]</button>
+          <div id="intel-cards"></div>
+        </aside>
+
+      </div>
     </main>
   </div>
 
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="/render.js"></script>
   <script src="/app.js"></script>
-  <script>document.addEventListener('DOMContentLoaded', () => window.initNavDock());</script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      window.initNavDock();
+
+      // ── Load / refresh intel cards from localStorage ─────────
+      function mountIntelPanel(data) {
+        const layout  = document.getElementById('homepage-layout');
+        const cards   = document.getElementById('intel-cards');
+        const heading = document.getElementById('homepage-heading');
+        if (!data || !window.renderIntelCards) return;
+        cards.innerHTML = window.renderIntelCards(data);
+        layout.classList.add('has-intel');
+        if (heading) heading.style.textAlign = 'left';
+      }
+
+      // Expose so app.js can call after each scan
+      window._refreshIntelPanel = function() {
+        try {
+          const cached = localStorage.getItem('lastScannedData');
+          if (cached) mountIntelPanel(JSON.parse(cached));
+        } catch(e) {}
+      };
+
+      // Restore on page load
+      window._refreshIntelPanel();
+
+      // Clear button
+      document.getElementById('intel-clear-btn').onclick = () => {
+        localStorage.removeItem('lastScannedData');
+        document.getElementById('homepage-layout').classList.remove('has-intel');
+        const h = document.getElementById('homepage-heading');
+        if (h) h.style.textAlign = 'center';
+        document.getElementById('intel-cards').innerHTML = '';
+      };
+    });
+  </script>
 </body>
 </html>

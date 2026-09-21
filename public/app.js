@@ -65,7 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
           const data = await res.json();
           clearInterval(window.activeLoadingInterval); 
           if (data.error) throw new Error(data.error);
-          if (typeof renderResults === "function") renderResults(data, 'results'); 
+          if (typeof renderResults === "function") renderResults(data, 'results');
+          if (window._refreshIntelPanel) window._refreshIntelPanel();
           else window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
         } catch (err) { 
           clearInterval(window.activeLoadingInterval);
@@ -87,7 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
       clearInterval(window.activeLoadingInterval); 
       if (data.error) throw new Error(data.error);
       if (typeof renderResults === "function") { 
-        renderResults(data, 'results'); 
+        renderResults(data, 'results');
+        if (window._refreshIntelPanel) window._refreshIntelPanel();
         if (window.loadRecentFeed) window.loadRecentFeed(); 
       } else {
         window.location.href = `/report/${encodeURIComponent(rawDomain)}`;
